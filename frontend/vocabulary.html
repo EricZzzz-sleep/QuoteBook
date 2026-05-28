@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-page="vocabulary">
   <div class="app-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand">
@@ -40,7 +40,7 @@
           <p class="eyebrow">Vocabulary bank</p>
           <h1>Turn unknown words into familiar ones.</h1>
         </div>
-        <button class="primary-action" type="button">Add word</button>
+        <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
       </header>
 
       <section class="vocab-summary" aria-label="Vocabulary summary">
@@ -61,68 +61,9 @@
         </article>
       </section>
 
-      <section class="word-grid" aria-label="Vocabulary words">
-        <article class="word-card book-word-card">
-          <div class="book-notebook-header">
-            <div class="book-cover cover-teal"><span>DE</span></div>
-            <div>
-              <span class="note-type">The Design of Everyday Things</span>
-              <h2>12 saved words</h2>
-            </div>
-          </div>
-          <div class="word-list">
-            <div><strong>Affordance</strong><span>A quality that suggests how an object should be used.</span></div>
-            <div><strong>Constraint</strong><span>A limit that guides possible actions.</span></div>
-            <div><strong>Mapping</strong><span>A relationship between controls and results.</span></div>
-          </div>
-        </article>
-
-        <article class="word-card book-word-card">
-          <div class="book-notebook-header">
-            <div class="book-cover cover-rose"><span>NO</span></div>
-            <div>
-              <span class="note-type">Notes on Observation</span>
-              <h2>9 saved words</h2>
-            </div>
-          </div>
-          <div class="word-list">
-            <div><strong>Salient</strong><span>Most noticeable or relevant in context.</span></div>
-            <div><strong>Empirical</strong><span>Based on observation or experience.</span></div>
-            <div><strong>Notation</strong><span>A system of written symbols.</span></div>
-          </div>
-        </article>
-
-        <article class="word-card book-word-card">
-          <div class="book-notebook-header">
-            <div class="book-cover cover-gold"><span>LM</span></div>
-            <div>
-              <span class="note-type">Language and Memory</span>
-              <h2>4 saved words</h2>
-            </div>
-          </div>
-          <div class="word-list">
-            <div><strong>Mnemonic</strong><span>A device that helps someone remember information.</span></div>
-            <div><strong>Retrieval</strong><span>The act of recalling stored information.</span></div>
-            <div><strong>Encoding</strong><span>Turning information into memory.</span></div>
-          </div>
-        </article>
-
-        <article class="word-card book-word-card">
-          <div class="book-notebook-header">
-            <div class="book-cover cover-plum"><span>PR</span></div>
-            <div>
-              <span class="note-type">Practical Reading Systems</span>
-              <h2>6 saved words</h2>
-            </div>
-          </div>
-          <div class="word-list">
-            <div><strong>Annotation</strong><span>A note added to explain or question a passage.</span></div>
-            <div><strong>Synthesis</strong><span>Combining ideas into a connected understanding.</span></div>
-            <div><strong>Retention</strong><span>The ability to keep information over time.</span></div>
-          </div>
-        </article>
-      </section>
+      <section class="word-grid" aria-label="Vocabulary words" data-real-vocabulary></section>
     </main>
   </div>
+  <script src="app.js" type="module"></script>
 </body>
 </html>

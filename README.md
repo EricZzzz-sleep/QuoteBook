@@ -26,7 +26,9 @@ ReadingTracker/
 │   ├── shelf.html
 │   ├── notes.html
 │   ├── vocabulary.html
+│   ├── reader.html
 │   ├── styles.css
+│   ├── app.js
 │   └── assets/
 ├── backend/
 │   └── README.md
@@ -46,12 +48,16 @@ cd frontend
 python3 -m http.server 8000
 ```
 
+If port `8000` is already busy, use another port such as `8002`.
+
 Then open:
 
 - Dashboard: `http://localhost:8000/`
 - Shelf: `http://localhost:8000/shelf.html`
 - Notes: `http://localhost:8000/notes.html`
 - Vocabulary: `http://localhost:8000/vocabulary.html`
+
+Uploaded PDFs are stored locally in the browser with IndexedDB and opened with PDF.js. After upload, each PDF appears as a selectable book on the Shelf page and opens in `reader.html`.
 
 ## My Contribution
 

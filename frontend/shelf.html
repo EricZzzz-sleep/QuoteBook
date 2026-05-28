@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-page="shelf">
   <div class="app-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand">
@@ -40,7 +40,7 @@
           <p class="eyebrow">Library shelf</p>
           <h1>Keep every book in reading order.</h1>
         </div>
-        <button class="primary-action" type="button">Upload PDF</button>
+        <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
       </header>
 
       <section class="shelf-toolbar" aria-label="Shelf filters">
@@ -50,68 +50,9 @@
         <button class="filter-chip" type="button">To read</button>
       </section>
 
-      <section class="shelf-grid" aria-label="Book shelf">
-        <article class="shelf-book">
-          <div class="large-cover cover-teal"><span>DE</span></div>
-          <div class="shelf-book-body">
-            <span class="status-pill light">Reading</span>
-            <h2>The Design of Everyday Things</h2>
-            <p>Page 184 of 368</p>
-            <div class="mini-track" aria-hidden="true"><span style="width: 50%"></span></div>
-            <div class="capture-summary">
-              <span>32 notes</span>
-              <span>12 vocabulary</span>
-              <span>3 summaries</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="shelf-book">
-          <div class="large-cover cover-rose"><span>NO</span></div>
-          <div class="shelf-book-body">
-            <span class="status-pill light">Reading</span>
-            <h2>Notes on Observation</h2>
-            <p>Page 151 of 240</p>
-            <div class="mini-track" aria-hidden="true"><span style="width: 63%"></span></div>
-            <div class="capture-summary">
-              <span>27 notes</span>
-              <span>9 vocabulary</span>
-              <span>2 summaries</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="shelf-book">
-          <div class="large-cover cover-gold"><span>LM</span></div>
-          <div class="shelf-book-body">
-            <span class="status-pill light">To read</span>
-            <h2>Language and Memory</h2>
-            <p>Page 44 of 320</p>
-            <div class="mini-track" aria-hidden="true"><span style="width: 14%"></span></div>
-            <div class="capture-summary">
-              <span>7 notes</span>
-              <span>4 vocabulary</span>
-              <span>1 summary</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="shelf-book">
-          <div class="large-cover cover-plum"><span>RS</span></div>
-          <div class="shelf-book-body">
-            <span class="status-pill light">Completed</span>
-            <h2>Reading Systems</h2>
-            <p>Finished with 28 notes</p>
-            <div class="mini-track" aria-hidden="true"><span style="width: 100%"></span></div>
-            <div class="capture-summary">
-              <span>28 notes</span>
-              <span>10 vocabulary</span>
-              <span>4 summaries</span>
-            </div>
-          </div>
-        </article>
-      </section>
+      <section class="shelf-grid" aria-label="Book shelf" data-book-grid></section>
     </main>
   </div>
+  <script src="app.js" type="module"></script>
 </body>
 </html>

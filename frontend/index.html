@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-page="dashboard">
   <div class="app-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand">
@@ -48,22 +48,22 @@
           <p class="eyebrow">Reader workspace</p>
           <h1>Track every page, quote, and idea.</h1>
         </div>
-        <button class="primary-action" type="button">Upload PDF</button>
+        <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
       </header>
 
       <section class="hero-band" aria-label="Reading overview">
         <img src="assets/reading-dashboard-hero.png" alt="Desk with an open book and a reading dashboard on a tablet">
         <div class="hero-copy">
-          <span class="status-pill">Currently reading</span>
-          <h2>The Design of Everyday Things</h2>
-          <p>Page 184 of 368. Last session: 42 minutes with 6 notes and 3 vocabulary marks.</p>
+          <span class="status-pill" data-hero-status>Upload a PDF</span>
+          <h2 data-hero-title>Your real books will appear here.</h2>
+          <p data-hero-meta>Choose a PDF to create a saved book with its own reader and progress.</p>
           <div class="progress-block">
             <div class="progress-meta">
               <span>Reading progress</span>
-              <strong>50%</strong>
+              <strong data-hero-progress>0%</strong>
             </div>
             <div class="progress-track" aria-hidden="true">
-              <span style="width: 50%"></span>
+              <span data-hero-progress-bar style="width: 0%"></span>
             </div>
           </div>
         </div>
@@ -72,7 +72,7 @@
       <section class="stats-grid" aria-label="Reading statistics">
         <article class="stat-card">
           <span>Books</span>
-          <strong>18</strong>
+          <strong data-stat-books>18</strong>
           <p>4 active</p>
         </article>
         <article class="stat-card accent-green">
@@ -102,88 +102,11 @@
             <button class="ghost-action" type="button">Filter</button>
           </div>
 
-          <div class="book-list">
-            <article class="book-card book-card-expanded">
-              <div class="book-row">
-                <div class="book-cover cover-teal">
-                  <span>UX</span>
-                </div>
-                <div class="book-info">
-                  <h3>Practical Reading Systems</h3>
-                  <p>Page 96 of 210</p>
-                  <div class="mini-track" aria-hidden="true"><span style="width: 46%"></span></div>
-                </div>
-                <span class="book-percent">46%</span>
-              </div>
-              <div class="book-captures">
-                <div>
-                  <span class="capture-label">Notes</span>
-                  <strong>18</strong>
-                  <p>Feedback loops make progress visible.</p>
-                </div>
-                <div>
-                  <span class="capture-label">Vocabulary</span>
-                  <strong>6</strong>
-                  <p>Annotation, retention, synthesis</p>
-                </div>
-              </div>
-            </article>
-
-            <article class="book-card book-card-expanded">
-              <div class="book-row">
-                <div class="book-cover cover-rose">
-                  <span>NO</span>
-                </div>
-                <div class="book-info">
-                  <h3>Notes on Observation</h3>
-                  <p>Page 151 of 240</p>
-                  <div class="mini-track" aria-hidden="true"><span style="width: 63%"></span></div>
-                </div>
-                <span class="book-percent">63%</span>
-              </div>
-              <div class="book-captures">
-                <div>
-                  <span class="capture-label">Notes</span>
-                  <strong>27</strong>
-                  <p>Observation patterns and chapter summary.</p>
-                </div>
-                <div>
-                  <span class="capture-label">Vocabulary</span>
-                  <strong>9</strong>
-                  <p>Salient, empirical, notation</p>
-                </div>
-              </div>
-            </article>
-
-            <article class="book-card book-card-expanded">
-              <div class="book-row">
-                <div class="book-cover cover-gold">
-                  <span>LM</span>
-                </div>
-                <div class="book-info">
-                  <h3>Language and Memory</h3>
-                  <p>Page 44 of 320</p>
-                  <div class="mini-track" aria-hidden="true"><span style="width: 14%"></span></div>
-                </div>
-                <span class="book-percent">14%</span>
-              </div>
-              <div class="book-captures">
-                <div>
-                  <span class="capture-label">Notes</span>
-                  <strong>7</strong>
-                  <p>Memory devices and recall practice.</p>
-                </div>
-                <div>
-                  <span class="capture-label">Vocabulary</span>
-                  <strong>4</strong>
-                  <p>Mnemonic, retrieval, encoding</p>
-                </div>
-              </div>
-            </article>
-          </div>
+          <div class="book-list" data-dashboard-books></div>
         </div>
       </section>
     </main>
   </div>
+  <script src="app.js" type="module"></script>
 </body>
 </html>

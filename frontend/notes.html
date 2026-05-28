@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-page="notes">
   <div class="app-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand">
@@ -40,62 +40,14 @@
           <p class="eyebrow">Notes workspace</p>
           <h1>Collect the ideas worth returning to.</h1>
         </div>
-        <button class="primary-action" type="button">New note</button>
+        <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
       </header>
 
       <section class="notes-layout">
-        <div class="notes-column">
-          <section class="book-notebook" aria-label="The Design of Everyday Things notes">
-            <div class="book-notebook-header">
-              <div class="book-cover cover-teal"><span>DE</span></div>
-              <div>
-                <span class="note-type">Book notebook</span>
-                <h2>The Design of Everyday Things</h2>
-                <p>32 notes, 12 vocabulary words, 3 summaries</p>
-              </div>
-            </div>
-            <article class="embedded-note">
-              <span>Quote, page 184</span>
-              <p>"A good tool disappears when the reader is thinking."</p>
-            </article>
-            <article class="embedded-note">
-              <span>Side note, page 190</span>
-              <p>Clear feedback helps readers trust that their progress is being captured.</p>
-            </article>
-          </section>
-
-          <section class="book-notebook" aria-label="Practical Reading Systems notes">
-            <div class="book-notebook-header">
-              <div class="book-cover cover-rose"><span>PR</span></div>
-              <div>
-                <span class="note-type">Book notebook</span>
-                <h2>Practical Reading Systems</h2>
-                <p>18 notes, 6 vocabulary words, 2 summaries</p>
-              </div>
-            </div>
-            <article class="embedded-note">
-              <span>Side note, page 96</span>
-              <p>Progress tracking works best when page position, session time, and captured ideas sit together.</p>
-            </article>
-          </section>
-
-          <section class="book-notebook" aria-label="Notes on Observation notes">
-            <div class="book-notebook-header">
-              <div class="book-cover cover-gold"><span>NO</span></div>
-              <div>
-                <span class="note-type">Book notebook</span>
-                <h2>Notes on Observation</h2>
-                <p>27 notes, 9 vocabulary words, 2 summaries</p>
-              </div>
-            </div>
-            <article class="embedded-note">
-              <span>Summary draft, page 151</span>
-              <p>The chapter connects confidence with clear signals: where the reader is, what changed, and what still needs attention.</p>
-            </article>
-          </section>
-        </div>
+        <div class="notes-column" data-real-notes></div>
       </section>
     </main>
   </div>
+  <script src="app.js" type="module"></script>
 </body>
 </html>
