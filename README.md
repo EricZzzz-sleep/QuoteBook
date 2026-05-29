@@ -41,7 +41,16 @@ The current frontend pages are located in `frontend/`. The root `index.html` red
 
 ## Run Locally
 
-From the project root:
+Install and start the Django backend first:
+
+```bash
+python3 -m pip install -r backend/requirements.txt
+cd backend
+python3 manage.py migrate
+python3 manage.py runserver 8010
+```
+
+In a second terminal, start the frontend from the project root:
 
 ```bash
 cd frontend
@@ -57,7 +66,9 @@ Then open:
 - Notes: `http://localhost:8000/notes.html`
 - Vocabulary: `http://localhost:8000/vocabulary.html`
 
-Uploaded PDFs are stored locally in the browser with IndexedDB and opened with PDF.js. After upload, each PDF appears as a selectable book on the Shelf page and opens in `reader.html`.
+When the backend is running, uploaded PDFs are saved to `backend/uploads/pdfs/`, book metadata is stored in `backend/db.sqlite3`, and the frontend can read the same library from any localhost frontend port. PDF pages are opened with PDF.js. After upload, each PDF appears as a selectable book on the Shelf page.
+
+If the backend is not running, the frontend falls back to browser IndexedDB storage. That fallback is separated by origin, so `http://localhost:8000/` and `http://localhost:8002/` have different local browser libraries.
 
 ## My Contribution
 

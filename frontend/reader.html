@@ -65,6 +65,52 @@
           <p class="empty-state" id="readerMessage">Loading PDF...</p>
         </div>
       </section>
+
+      <section class="capture-panel" aria-label="Reading captures">
+        <form class="capture-card" data-note-form>
+          <div>
+            <p class="eyebrow">Quote note</p>
+            <h2>Save a passage</h2>
+          </div>
+          <label class="field-label">
+            <span>Quote</span>
+            <textarea class="field-input text-area" name="quote" rows="4" placeholder="Paste or type the quote from this page." required></textarea>
+          </label>
+          <label class="field-label">
+            <span>Side note</span>
+            <textarea class="field-input text-area" name="note" rows="3" placeholder="Why does it matter?"></textarea>
+          </label>
+          <button class="primary-action" type="submit">Save Note</button>
+        </form>
+
+        <form class="capture-card" data-vocabulary-form>
+          <div>
+            <p class="eyebrow">Vocabulary</p>
+            <h2>Mark a word</h2>
+          </div>
+          <label class="field-label">
+            <span>Word</span>
+            <input class="field-input" name="word" type="text" maxlength="80" required>
+          </label>
+          <label class="field-label">
+            <span>Translation</span>
+            <input class="field-input" name="translation" type="text" maxlength="160" placeholder="Meaning or translation" required>
+          </label>
+          <button class="primary-action" type="submit">Save Word</button>
+        </form>
+
+        <form class="capture-card capture-card-wide" data-summary-form>
+          <div>
+            <p class="eyebrow">Summary</p>
+            <h2>Write a summary</h2>
+          </div>
+          <label class="field-label">
+            <span>Summary</span>
+            <textarea class="field-input text-area" name="summary" rows="5" placeholder="Capture the main idea from this reading session." required></textarea>
+          </label>
+          <button class="primary-action" type="submit">Save Summary</button>
+        </form>
+      </section>
     </main>
   </div>
 

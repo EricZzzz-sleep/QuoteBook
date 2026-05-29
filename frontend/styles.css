@@ -750,6 +750,11 @@ h1 {
   font: inherit;
 }
 
+.text-area {
+  min-height: 110px;
+  resize: vertical;
+}
+
 .field-input:focus {
   border-color: var(--teal);
   outline: 3px solid rgba(47, 125, 122, 0.16);
@@ -1097,6 +1102,48 @@ h1 {
   font-weight: 800;
 }
 
+.capture-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.capture-card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(23, 33, 43, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.92);
+  box-shadow: 0 12px 36px rgba(29, 38, 45, 0.08);
+}
+
+.capture-card h2 {
+  margin-bottom: 0;
+  font-size: 1.45rem;
+}
+
+.capture-card .primary-action {
+  justify-self: start;
+}
+
+.capture-card-wide {
+  grid-column: 1 / -1;
+}
+
+.embedded-note small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.summary-entry {
+  border-left-color: var(--gold);
+}
+
 .empty-library {
   grid-column: 1 / -1;
   padding: 24px;
@@ -1300,5 +1347,13 @@ button:disabled {
   .pdf-stage {
     min-height: 420px;
     padding: 10px;
+  }
+
+  .capture-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-card .primary-action {
+    justify-self: stretch;
   }
 }

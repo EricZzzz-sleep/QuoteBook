@@ -1,11 +1,13 @@
 const DB_NAME = "reading-tracker";
 const DB_VERSION = 1;
 const BOOK_STORE = "books";
+const API_BASE_URL = window.READING_TRACKER_API_URL || "http://localhost:8010";
 const PDF_JS_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 
 let dbPromise;
 let uploadInProgress = false;
+let storagePersistencePromise;
 
 function openDatabase() {
   if (dbPromise) return dbPromise;
@@ -46,16 +48,94 @@ async function withStore(mode, callback) {
 }
 
 async function getSavedBooks() {
+  try {
+    return await getBackendBooks();
+  } catch (error) {
+    console.warn("Backend unavailable, using browser storage", error);
+  }
+
   const books = (await withStore("readonly", (store) => store.getAll())) || [];
   return ensureBookCoverImages(books);
 }
 
 async function getBook(id) {
+  try {
+    return await getBackendBook(id);
+  } catch (error) {
+    console.warn("Backend unavailable, using browser storage", error);
+  }
+
   return withStore("readonly", (store) => store.get(id));
 }
 
 async function saveBook(book) {
   await withStore("readwrite", (store) => store.put(book));
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+      ...options.headers,
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "The backend request failed.");
+  }
+  return data;
+}
+
+async function getBackendBooks() {
+  const data = await apiRequest("/api/books/");
+  return data.books || [];
+}
+
+async function getBackendBook(id) {
+  const data = await apiRequest(`/api/books/${encodeURIComponent(id)}/`);
+  return data.book;
+}
+
+async function uploadBookToBackend(file, metadata) {
+  const formData = new FormData();
+  formData.append("pdf", file);
+  Object.entries(metadata).forEach(([key, value]) => {
+    formData.append(key, value);
+  });
+
+  const data = await apiRequest("/api/books/", {
+    method: "POST",
+    body: formData,
+  });
+  return data.book;
+}
+
+async function requestPersistentLocalStorage() {
+  if (storagePersistencePromise) return storagePersistencePromise;
+
+  storagePersistencePromise = (async () => {
+    if (!navigator.storage?.persist) return false;
+
+    try {
+      if (navigator.storage.persisted && (await navigator.storage.persisted())) {
+        return true;
+      }
+
+      return navigator.storage.persist();
+    } catch (error) {
+      console.warn("Persistent storage could not be requested", error);
+      return false;
+    }
+  })();
+
+  return storagePersistencePromise;
+}
+
+async function verifySavedPdf(id) {
+  const saved = await getBook(id);
+  return Boolean(saved?.pdfBlob && saved.pdfBlob.size > 0);
 }
 
 async function ensureBookCoverImages(books) {
@@ -80,6 +160,16 @@ async function ensureBookCoverImages(books) {
 }
 
 async function updateBookPage(id, currentPage) {
+  try {
+    await apiRequest(`/api/books/${encodeURIComponent(id)}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ currentPage }),
+    });
+    return;
+  } catch (error) {
+    console.warn("Backend unavailable, saving page locally", error);
+  }
+
   const book = await getBook(id);
   if (!book) return;
   book.currentPage = currentPage;
@@ -88,6 +178,16 @@ async function updateBookPage(id, currentPage) {
 }
 
 async function updateBookDetails(id, title, author) {
+  try {
+    const data = await apiRequest(`/api/books/${encodeURIComponent(id)}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ title, author, cover: getInitials(title) }),
+    });
+    return data.book;
+  } catch (error) {
+    console.warn("Backend unavailable, saving details locally", error);
+  }
+
   const book = await getBook(id);
   if (!book) return null;
   book.title = title;
@@ -96,6 +196,34 @@ async function updateBookDetails(id, title, author) {
   book.updatedAt = new Date().toISOString();
   await saveBook(book);
   return book;
+}
+
+async function addBookCapture(id, type, data) {
+  try {
+    const response = await apiRequest(`/api/books/${encodeURIComponent(id)}/captures/`, {
+      method: "POST",
+      body: JSON.stringify({ type, ...data }),
+    });
+    return response.capture;
+  } catch (error) {
+    console.warn("Backend unavailable, saving capture locally", error);
+  }
+
+  const book = await getBook(id);
+  if (!book) return null;
+
+  const capture = {
+    id: crypto.randomUUID(),
+    page: data.page,
+    createdAt: new Date().toISOString(),
+    ...data,
+  };
+
+  if (!Array.isArray(book[type])) book[type] = [];
+  book[type].unshift(capture);
+  book.updatedAt = new Date().toISOString();
+  await saveBook(book);
+  return capture;
 }
 
 function getInitials(title) {
@@ -127,6 +255,18 @@ function escapeHtml(value) {
 
 function normalizeTitle(value) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeCaptureText(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function formatDate(value) {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
 }
 
 function progressPercent(book) {
@@ -176,6 +316,20 @@ async function getPdfInfo(file) {
   };
 }
 
+async function getBookPdfBuffer(book) {
+  if (book.pdfBlob) {
+    return book.pdfBlob.arrayBuffer();
+  }
+
+  if (book.pdfUrl) {
+    const response = await fetch(book.pdfUrl);
+    if (!response.ok) throw new Error("The saved PDF could not be loaded.");
+    return response.arrayBuffer();
+  }
+
+  throw new Error("This book does not have a saved PDF.");
+}
+
 async function handlePdfUpload(file) {
   if (uploadInProgress) return;
   if (!file || (file.type && file.type !== "application/pdf") || !file.name.toLowerCase().endsWith(".pdf")) {
@@ -186,15 +340,35 @@ async function handlePdfUpload(file) {
   uploadInProgress = true;
   const { totalPages, coverImage } = await getPdfInfo(file);
   const title = formatTitle(file.name);
+
+  try {
+    const backendBook = await uploadBookToBackend(file, {
+      title,
+      totalPages,
+      cover: getInitials(title),
+      coverImage,
+      color: "cover-teal",
+    });
+    window.location.href = `reader.html?id=${backendBook.id}`;
+    return;
+  } catch (error) {
+    console.warn("Backend upload unavailable, saving PDF in browser storage", error);
+  }
+
+  const storagePersisted = await requestPersistentLocalStorage();
+  const pdfBlob = file.slice(0, file.size, file.type || "application/pdf");
   const book = {
     id: crypto.randomUUID(),
     title,
     fileName: file.name,
-    pdfBlob: file,
+    fileSize: file.size,
+    fileType: file.type || "application/pdf",
+    pdfBlob,
     totalPages,
     currentPage: 1,
     uploadedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    storagePersisted,
     notes: [],
     vocabulary: [],
     summaries: [],
@@ -205,6 +379,10 @@ async function handlePdfUpload(file) {
   };
 
   await saveBook(book);
+  if (!(await verifySavedPdf(book.id))) {
+    throw new Error("The PDF could not be saved locally.");
+  }
+
   window.location.href = `reader.html?id=${book.id}`;
 }
 
@@ -224,7 +402,7 @@ function bindUploadButtons() {
       await handlePdfUpload(file);
     } catch (error) {
       console.error(error);
-      alert("The PDF could not be opened. Please try another file.");
+      alert("The PDF could not be opened or saved locally. Please try another file.");
     } finally {
       input.value = "";
       uploadInProgress = false;
@@ -380,16 +558,29 @@ function createDashboardBook(book) {
         <div>
           <span class="capture-label">Notes</span>
           <strong>${notes}</strong>
-          <p>Ready for notes in the next step.</p>
+          <p>${notes ? "Saved while reading this PDF." : "Add quote notes from the reader."}</p>
         </div>
         <div>
           <span class="capture-label">Vocabulary</span>
           <strong>${vocabulary}</strong>
-          <p>Ready for vocabulary marks.</p>
+          <p>${vocabulary ? "Words with translations are saved." : "Mark unknown words from the reader."}</p>
         </div>
       </div>
     </article>
   `;
+}
+
+function getBookCaptureCounts(books) {
+  return books.reduce(
+    (totals, book) => {
+      totals.pages += book.currentPage || 0;
+      totals.notes += Array.isArray(book.notes) ? book.notes.length : 0;
+      totals.vocabulary += Array.isArray(book.vocabulary) ? book.vocabulary.length : 0;
+      totals.summaries += Array.isArray(book.summaries) ? book.summaries.length : 0;
+      return totals;
+    },
+    { pages: 0, notes: 0, vocabulary: 0, summaries: 0 }
+  );
 }
 
 function renderDashboardHero(books) {
@@ -458,6 +649,7 @@ async function renderDashboard() {
   if (!list) return;
 
   const books = await getSavedBooks();
+  const totals = getBookCaptureCounts(books);
   renderDashboardHero(books);
   if (!books.length) {
     renderEmptyState(list, "Your uploaded PDFs will appear here with reading progress.");
@@ -467,11 +659,16 @@ async function renderDashboard() {
 
   const bookCount = document.querySelector("[data-stat-books]");
   if (bookCount) bookCount.textContent = String(books.length);
+  const statCards = document.querySelectorAll(".stats-grid .stat-card strong");
+  if (statCards[1]) statCards[1].textContent = String(totals.pages);
+  if (statCards[2]) statCards[2].textContent = String(totals.notes);
+  if (statCards[3]) statCards[3].textContent = String(totals.vocabulary);
   fitSidebarText();
 }
 
 async function renderNotesAndVocabulary() {
   const saved = await getSavedBooks();
+  const totals = getBookCaptureCounts(saved);
 
   const notesColumn = document.querySelector("[data-real-notes]");
   if (notesColumn) {
@@ -480,22 +677,54 @@ async function renderNotesAndVocabulary() {
     } else {
       notesColumn.innerHTML = saved
         .map(
-          (book) => `
-            <section class="book-notebook" aria-label="${escapeHtml(book.title)} notes">
+          (book) => {
+            const notes = Array.isArray(book.notes) ? book.notes : [];
+            const summaries = Array.isArray(book.summaries) ? book.summaries : [];
+            const vocabulary = Array.isArray(book.vocabulary) ? book.vocabulary : [];
+            const noteMarkup = notes.length
+              ? notes
+                  .map(
+                    (note) => `
+                      <article class="embedded-note">
+                        <span>Page ${note.page} &middot; ${formatDate(note.createdAt)}</span>
+                        <p>${escapeHtml(note.quote)}</p>
+                        ${note.note ? `<small>${escapeHtml(note.note)}</small>` : ""}
+                      </article>
+                    `
+                  )
+                  .join("")
+              : `
+                <article class="embedded-note">
+                  <span>Ready for notes</span>
+                  <p>Open this PDF from Shelf to save quote notes while reading.</p>
+                </article>
+              `;
+            const summaryMarkup = summaries
+              .map(
+                (summary) => `
+                  <article class="embedded-note summary-entry">
+                    <span>Summary &middot; Page ${summary.page} &middot; ${formatDate(summary.createdAt)}</span>
+                    <p>${escapeHtml(summary.summary)}</p>
+                  </article>
+                `
+              )
+              .join("");
+
+            return `
+              <section class="book-notebook" aria-label="${escapeHtml(book.title)} notes">
               <div class="book-notebook-header">
                 ${createCoverMarkup(book)}
                 <div>
                   <span class="note-type">Uploaded book</span>
                   <h2>${escapeHtml(book.title)}</h2>
-                  <p>${book.author ? `By ${escapeHtml(book.author)}. ` : ""}${book.notes.length} notes, ${book.vocabulary.length} vocabulary words, ${book.summaries.length} summaries</p>
+                  <p>${book.author ? `By ${escapeHtml(book.author)}. ` : ""}${notes.length} notes, ${vocabulary.length} vocabulary words, ${summaries.length} summaries</p>
                 </div>
               </div>
-              <article class="embedded-note">
-                <span>Ready for notes</span>
-                <p>Open this PDF from Shelf to continue reading. Notes for this book will live here next.</p>
-              </article>
+              ${noteMarkup}
+              ${summaryMarkup}
             </section>
-          `
+          `;
+          }
         )
         .join("");
     }
@@ -503,25 +732,46 @@ async function renderNotesAndVocabulary() {
 
   const wordGrid = document.querySelector("[data-real-vocabulary]");
   if (wordGrid) {
+    const vocabStats = document.querySelectorAll(".vocab-summary .stat-card strong");
+    if (vocabStats[0]) vocabStats[0].textContent = String(totals.vocabulary);
+    if (vocabStats[1]) vocabStats[1].textContent = String(totals.vocabulary);
+    if (vocabStats[2]) vocabStats[2].textContent = "0";
+
     if (!saved.length) {
       renderEmptyState(wordGrid, "Upload a PDF first. Vocabulary will be grouped under each real book.");
     } else {
       wordGrid.innerHTML = saved
         .map(
-          (book) => `
+          (book) => {
+            const vocabulary = Array.isArray(book.vocabulary) ? book.vocabulary : [];
+            const wordMarkup = vocabulary.length
+              ? vocabulary
+                  .map(
+                    (entry) => `
+                      <div>
+                        <strong>${escapeHtml(entry.word)}</strong>
+                        <span>${escapeHtml(entry.translation)} &middot; Page ${entry.page} &middot; ${formatDate(entry.createdAt)}</span>
+                      </div>
+                    `
+                  )
+                  .join("")
+              : "<div><strong>Ready for vocabulary</strong><span>Words marked while reading this PDF will appear here.</span></div>";
+
+            return `
             <article class="word-card book-word-card">
               <div class="book-notebook-header">
                 ${createCoverMarkup(book)}
                 <div>
                   <span class="note-type">${escapeHtml(book.title)}</span>
-                  <h2>${book.vocabulary.length} saved words</h2>
+                  <h2>${vocabulary.length} saved words</h2>
                 </div>
               </div>
               <div class="word-list">
-                <div><strong>Ready for vocabulary</strong><span>Words marked while reading this PDF will appear here.</span></div>
+                ${wordMarkup}
               </div>
             </article>
-          `
+          `;
+          }
         )
         .join("");
     }
@@ -562,7 +812,7 @@ async function renderReader() {
   }
 
   const pdfjs = await loadPdfJs();
-  const buffer = await book.pdfBlob.arrayBuffer();
+  const buffer = await getBookPdfBuffer(book);
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
   let currentPage = Math.min(Math.max(book.currentPage || 1, 1), pdf.numPages);
 
@@ -575,6 +825,9 @@ async function renderReader() {
   const prev = document.querySelector("#prevPage");
   const next = document.querySelector("#nextPage");
   const rename = document.querySelector("#readerRename");
+  const noteForm = document.querySelector("[data-note-form]");
+  const vocabularyForm = document.querySelector("[data-vocabulary-form]");
+  const summaryForm = document.querySelector("[data-summary-form]");
   const context = canvas.getContext("2d");
 
   title.textContent = book.title;
@@ -614,6 +867,38 @@ async function renderReader() {
     if (currentPage >= pdf.numPages) return;
     currentPage += 1;
     await drawPage(currentPage);
+  });
+
+  noteForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const quote = normalizeCaptureText(noteForm.elements.quote.value);
+    const note = normalizeCaptureText(noteForm.elements.note.value);
+    if (!quote) return;
+
+    await addBookCapture(book.id, "notes", { quote, note, page: currentPage });
+    noteForm.reset();
+    await refreshCurrentPage();
+  });
+
+  vocabularyForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const word = normalizeCaptureText(vocabularyForm.elements.word.value);
+    const translation = normalizeCaptureText(vocabularyForm.elements.translation.value);
+    if (!word || !translation) return;
+
+    await addBookCapture(book.id, "vocabulary", { word, translation, page: currentPage });
+    vocabularyForm.reset();
+    await refreshCurrentPage();
+  });
+
+  summaryForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const summary = normalizeCaptureText(summaryForm.elements.summary.value);
+    if (!summary) return;
+
+    await addBookCapture(book.id, "summaries", { summary, page: currentPage });
+    summaryForm.reset();
+    await refreshCurrentPage();
   });
 
   window.addEventListener("resize", () => {
