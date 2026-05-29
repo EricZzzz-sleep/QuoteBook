@@ -25,11 +25,6 @@
         <a class="nav-item" href="notes.html">Notes</a>
       </nav>
 
-      <div class="sidebar-panel">
-        <span class="panel-label">Shelf status</span>
-        <strong>18 books</strong>
-        <p>Four in progress, nine completed, and five waiting to be started.</p>
-      </div>
     </aside>
 
     <main class="page">
@@ -48,7 +43,12 @@
         <button class="filter-chip" type="button">To read</button>
       </section>
 
-      <section class="shelf-grid" aria-label="Book shelf" data-book-grid></section>
+      <section class="shelf-grid" aria-label="Book shelf" data-book-grid>
+        <div class="empty-library">
+          <strong>Loading shelf...</strong>
+          <p>Fetching your uploaded PDFs.</p>
+        </div>
+      </section>
     </main>
   </div>
   <script src="app.js" type="module"></script>

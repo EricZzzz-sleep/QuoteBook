@@ -11,8 +11,21 @@ def serve_media(request, path):
     return add_cors_headers(response)
 
 
+def serve_frontend(request, path="index.html"):
+    response = serve(request, path or "index.html", document_root=settings.FRONTEND_ROOT)
+    response["Cache-Control"] = "no-store"
+    return add_cors_headers(response)
+
+
+def serve_legacy_frontend(request, path):
+    return serve_frontend(request, path)
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("books.urls")),
     re_path(r"^media/(?P<path>.*)$", serve_media),
+    re_path(r"^frontend/(?P<path>(?:app\.js|styles\.css|index\.html|shelf\.html|notes\.html|reader\.html|assets/.*))$", serve_legacy_frontend),
+    path("", serve_frontend),
+    re_path(r"^(?P<path>(?:app\.js|styles\.css|index\.html|shelf\.html|notes\.html|reader\.html|assets/.*))$", serve_frontend),
 ]

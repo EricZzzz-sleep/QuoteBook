@@ -59,6 +59,28 @@ def options_response():
     return add_cors_headers(JsonResponse({}))
 
 
+def count_captures(value):
+    return len(value) if isinstance(value, list) else 0
+
+
+@csrf_exempt
+def library_stats(request):
+    if request.method == "OPTIONS":
+        return options_response()
+
+    if request.method != "GET":
+        return json_response({"error": "Method not allowed."}, status=405)
+
+    books = Book.objects.all()
+    stats = {
+        "books": books.count(),
+        "pagesRead": sum(book.current_page or 0 for book in books),
+        "quotes": sum(count_captures(book.notes) for book in books),
+        "summaries": sum(count_captures(book.summaries) for book in books),
+    }
+    return json_response({"stats": stats})
+
+
 @csrf_exempt
 def books_collection(request):
     if request.method == "OPTIONS":

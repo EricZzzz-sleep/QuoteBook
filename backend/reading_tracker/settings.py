@@ -61,5 +61,6 @@ USE_TZ = True
 STATIC_URL = "static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "uploads"
+FRONTEND_ROOT = BASE_DIR.parent / "frontend"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

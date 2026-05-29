@@ -1,7 +1,8 @@
 const DB_NAME = "reading-tracker";
 const DB_VERSION = 1;
 const BOOK_STORE = "books";
-const API_BASE_URL = window.READING_TRACKER_API_URL || "http://localhost:8010";
+const DEFAULT_API_BASE_URL = window.location.protocol === "file:" ? "http://localhost:8000" : window.location.origin;
+const API_BASE_URL = window.READING_TRACKER_API_URL || DEFAULT_API_BASE_URL;
 const PDF_JS_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -50,14 +51,42 @@ async function withStore(mode, callback) {
 }
 
 async function getSavedBooks() {
+  let backendBooks = [];
+  let backendAvailable = false;
+
   try {
-    return await getBackendBooks();
+    backendBooks = await getBackendBooks();
+    backendAvailable = true;
   } catch (error) {
     console.warn("Backend unavailable, using browser storage", error);
   }
 
-  const books = (await withStore("readonly", (store) => store.getAll())) || [];
-  return ensureBookCoverImages(books);
+  if (backendBooks.length) {
+    return sortBooksByUpdatedAt(backendBooks);
+  }
+
+  let localBooks = [];
+  try {
+    localBooks = (await withStore("readonly", (store) => store.getAll())) || [];
+    ensureBookCoverImages(localBooks).catch((error) => {
+      console.warn("Could not refresh local book covers", error);
+    });
+  } catch (error) {
+    if (!backendAvailable) throw error;
+    console.warn("Browser storage unavailable, using backend library", error);
+  }
+
+  const mergedBooks = new Map();
+  localBooks.forEach((book) => mergedBooks.set(book.id, book));
+  backendBooks.forEach((book) => mergedBooks.set(book.id, book));
+
+  return sortBooksByUpdatedAt(Array.from(mergedBooks.values()));
+}
+
+function sortBooksByUpdatedAt(books) {
+  return books.sort((first, second) => {
+    return new Date(second.updatedAt || 0) - new Date(first.updatedAt || 0);
+  });
 }
 
 async function getBook(id) {
@@ -98,6 +127,11 @@ async function getBackendBooks() {
 async function getBackendBook(id) {
   const data = await apiRequest(`/api/books/${encodeURIComponent(id)}/`);
   return data.book;
+}
+
+async function getBackendStats() {
+  const data = await apiRequest("/api/stats/");
+  return data.stats;
 }
 
 async function uploadBookToBackend(file, metadata) {
@@ -296,6 +330,13 @@ function writeOcrCache(bookId, pageNumber, words) {
 function progressPercent(book) {
   if (!book.totalPages) return 0;
   return Math.round((book.currentPage / book.totalPages) * 100);
+}
+
+function captureCount(book, type) {
+  const captures = book[type];
+  if (Array.isArray(captures)) return captures.length;
+  const count = Number(captures);
+  return Number.isFinite(count) ? count : 0;
 }
 
 function createCoverMarkup(book, size = "small") {
@@ -548,8 +589,8 @@ function bindRenameControls() {
 
 function createBookCard(book) {
   const percent = progressPercent(book);
-  const notes = Array.isArray(book.notes) ? book.notes.length : book.notes || 0;
-  const summaries = Array.isArray(book.summaries) ? book.summaries.length : book.summaries || 0;
+  const notes = captureCount(book, "notes");
+  const summaries = captureCount(book, "summaries");
   const title = escapeHtml(book.title);
   const author = book.author ? ` by ${escapeHtml(book.author)}` : "";
   const href = `reader.html?id=${encodeURIComponent(book.id)}`;
@@ -576,7 +617,7 @@ function createBookCard(book) {
 
 function createDashboardBook(book) {
   const percent = progressPercent(book);
-  const notes = Array.isArray(book.notes) ? book.notes.length : book.notes || 0;
+  const notes = captureCount(book, "notes");
   const title = escapeHtml(book.title);
   const author = book.author ? ` by ${escapeHtml(book.author)}` : "";
 
@@ -606,12 +647,28 @@ function getBookCaptureCounts(books) {
   return books.reduce(
     (totals, book) => {
       totals.pages += book.currentPage || 0;
-      totals.notes += Array.isArray(book.notes) ? book.notes.length : 0;
-      totals.summaries += Array.isArray(book.summaries) ? book.summaries.length : 0;
+      totals.notes += captureCount(book, "notes");
+      totals.summaries += captureCount(book, "summaries");
       return totals;
     },
     { pages: 0, notes: 0, summaries: 0 }
   );
+}
+
+async function getDashboardStats(books) {
+  try {
+    return await getBackendStats();
+  } catch (error) {
+    console.warn("Backend stats unavailable, using loaded books", error);
+  }
+
+  const totals = getBookCaptureCounts(books);
+  return {
+    books: books.length,
+    pagesRead: totals.pages,
+    quotes: totals.notes,
+    summaries: totals.summaries,
+  };
 }
 
 function renderDashboardHero(books) {
@@ -641,6 +698,16 @@ function renderDashboardHero(books) {
   progressBar.style.width = `${percent}%`;
 }
 
+function renderDashboardStats(stats) {
+  const bookCount = document.querySelector("[data-stat-books]");
+  const pageCount = document.querySelector("[data-stat-pages]");
+  const quoteCount = document.querySelector("[data-stat-quotes]");
+
+  if (bookCount) bookCount.textContent = String(stats.books || 0);
+  if (pageCount) pageCount.textContent = String(stats.pagesRead || 0);
+  if (quoteCount) quoteCount.textContent = String(stats.quotes || 0);
+}
+
 function fitSidebarText() {
   document.querySelectorAll(".sidebar-panel strong").forEach((element) => {
     const length = element.textContent.trim().length;
@@ -662,25 +729,35 @@ function renderEmptyState(container, message) {
   `;
 }
 
-async function renderShelf() {
+async function renderShelf(loadedBooks) {
   const grid = document.querySelector("[data-book-grid]");
   if (!grid) return;
 
-  const books = await getSavedBooks();
+  let books = [];
+  try {
+    books = loadedBooks || (await getSavedBooks());
+  } catch (error) {
+    console.error(error);
+    renderEmptyState(grid, "The shelf could not load. Refresh the page or restart the server with make run.");
+    return;
+  }
+
   if (!books.length) {
     renderEmptyState(grid, "Upload a PDF to create your first real book.");
+    fitSidebarText();
     return;
   }
 
   grid.innerHTML = books.map(createBookCard).join("");
+  fitSidebarText();
 }
 
-async function renderDashboard() {
+async function renderDashboard(loadedBooks) {
   const list = document.querySelector("[data-dashboard-books]");
   if (!list) return;
 
-  const books = await getSavedBooks();
-  const totals = getBookCaptureCounts(books);
+  const books = loadedBooks || (await getSavedBooks());
+  const stats = await getDashboardStats(books);
   renderDashboardHero(books);
   if (!books.length) {
     renderEmptyState(list, "Your uploaded PDFs will appear here with reading progress.");
@@ -688,18 +765,16 @@ async function renderDashboard() {
     list.innerHTML = books.map(createDashboardBook).join("");
   }
 
-  const bookCount = document.querySelector("[data-stat-books]");
-  if (bookCount) bookCount.textContent = String(books.length);
-  const statCards = document.querySelectorAll(".stats-grid .stat-card strong");
-  if (statCards[1]) statCards[1].textContent = String(totals.pages);
-  if (statCards[2]) statCards[2].textContent = String(totals.notes);
+  renderDashboardStats(stats);
   fitSidebarText();
 }
 
-async function renderNotes() {
-  const saved = await getSavedBooks();
-
+async function renderNotes(loadedBooks) {
   const notesColumn = document.querySelector("[data-real-notes]");
+  if (!notesColumn) return;
+
+  const saved = loadedBooks || (await getSavedBooks());
+
   if (notesColumn) {
     if (!saved.length) {
       renderEmptyState(notesColumn, "Upload a PDF first. Notes will be grouped under each real book.");
@@ -762,9 +837,10 @@ async function renderNotes() {
 }
 
 async function refreshCurrentPage() {
-  await renderDashboard();
-  await renderShelf();
-  await renderNotes();
+  const books = await getSavedBooks();
+  await renderDashboard(books);
+  await renderShelf(books);
+  await renderNotes(books);
 
   if (document.body.dataset.page === "reader") {
     const params = new URLSearchParams(window.location.search);
@@ -1103,10 +1179,16 @@ async function renderReader() {
 async function init() {
   bindUploadButtons();
   bindRenameControls();
-  await renderDashboard();
-  await renderShelf();
-  await renderNotes();
-  await renderReader();
+  const books = await getSavedBooks();
+  try {
+    await renderDashboard(books);
+    await renderShelf(books);
+    await renderNotes(books);
+    await renderReader();
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
   fitSidebarText();
 }
 
