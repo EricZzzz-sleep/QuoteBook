@@ -9,7 +9,7 @@ from .models import Book
 
 
 CAPTURE_FIELDS = {
-    "notes": {"quote", "note", "page"},
+    "notes": {"quote", "note", "page", "tags"},
     "vocabulary": {"word", "translation", "page"},
     "summaries": {"summary", "page"},
 }
@@ -22,7 +22,7 @@ CAPTURE_REQUIRED_FIELDS = {
 
 def add_cors_headers(response):
     response["Access-Control-Allow-Origin"] = "*"
-    response["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
+    response["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
     response["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
@@ -76,6 +76,20 @@ def clean_text(value, max_length=None):
     return cleaned
 
 
+def local_date_string(value):
+    if not value:
+        return ""
+    return timezone.localtime(value).date().isoformat()
+
+
+def add_reading_date(book, value=None):
+    date_value = local_date_string(value or timezone.now())
+    dates = book.reading_dates if isinstance(book.reading_dates, list) else []
+    if date_value and date_value not in dates:
+        dates.append(date_value)
+    book.reading_dates = sorted(dates)
+
+
 def serialize_book(book, request):
     return {
         "id": str(book.id),
@@ -92,6 +106,8 @@ def serialize_book(book, request):
         "notes": book.notes,
         "vocabulary": book.vocabulary,
         "summaries": book.summaries,
+        "lastReadAt": book.last_read_at.isoformat() if book.last_read_at else "",
+        "readingDates": book.reading_dates if isinstance(book.reading_dates, list) else [],
         "cover": book.cover,
         "coverImage": book.cover_image,
         "color": book.color,
@@ -115,12 +131,11 @@ def library_stats(request):
     if request.method != "GET":
         return json_response({"error": "Method not allowed."}, status=405)
 
-    books = Book.objects.all()
+    books = list(Book.objects.all())
     stats = {
-        "books": books.count(),
+        "books": len(books),
         "pagesRead": sum(book.current_page or 0 for book in books),
         "quotes": sum(count_captures(book.notes) for book in books),
-        "summaries": sum(count_captures(book.summaries) for book in books),
     }
     return json_response({"stats": stats})
 
@@ -199,10 +214,16 @@ def book_detail(request, book_id):
             if error:
                 return json_response({"error": error}, status=400)
             book.current_page = min(current_page, book.total_pages)
+            book.last_read_at = timezone.now()
+            add_reading_date(book, book.last_read_at)
         if "cover" in data:
             book.cover = clean_text(data["cover"], 12) or "PDF"
         book.save()
         return json_response({"book": serialize_book(book, request)})
+
+    if request.method == "DELETE":
+        book.delete()
+        return json_response({"deleted": True})
 
     return json_response({"error": "Method not allowed."}, status=405)
 
@@ -229,11 +250,19 @@ def book_captures(request, book_id):
         return json_response({"error": "Invalid capture type."}, status=400)
 
     allowed_fields = CAPTURE_FIELDS[capture_type]
-    capture = {
-        key: clean_text(data.get(key, ""))
-        for key in allowed_fields
-        if key in data
-    }
+    capture = {}
+    for key in allowed_fields:
+        if key not in data:
+            continue
+        if key == "tags":
+            tags = data.get("tags")
+            if isinstance(tags, str):
+                tags = tags.split(",")
+            if not isinstance(tags, list):
+                tags = []
+            capture["tags"] = [clean_text(tag, 32) for tag in tags if clean_text(tag, 32)][:8]
+        else:
+            capture[key] = clean_text(data.get(key, ""))
     required_field = CAPTURE_REQUIRED_FIELDS[capture_type]
     if not capture.get(required_field):
         return json_response({"error": f"{required_field} is required."}, status=400)
@@ -251,3 +280,25 @@ def book_captures(request, book_id):
     book.save()
 
     return json_response({"capture": capture, "book": serialize_book(book, request)}, status=201)
+
+
+@csrf_exempt
+def book_capture_detail(request, book_id, capture_id):
+    if request.method == "OPTIONS":
+        return options_response()
+
+    if request.method != "DELETE":
+        return json_response({"error": "Method not allowed."}, status=405)
+
+    book, error_response = get_book_or_error(book_id)
+    if error_response:
+        return error_response
+
+    notes = book.notes if isinstance(book.notes, list) else []
+    next_notes = [note for note in notes if str(note.get("id")) != str(capture_id)]
+    if len(next_notes) == len(notes):
+        return json_response({"error": "Quote not found."}, status=404)
+
+    book.notes = next_notes
+    book.save()
+    return json_response({"deleted": True, "book": serialize_book(book, request)})

@@ -19,6 +19,8 @@ class Book(models.Model):
     notes = models.JSONField(default=list)
     vocabulary = models.JSONField(default=list)
     summaries = models.JSONField(default=list)
+    last_read_at = models.DateTimeField(null=True, blank=True)
+    reading_dates = models.JSONField(default=list)
     uploaded_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

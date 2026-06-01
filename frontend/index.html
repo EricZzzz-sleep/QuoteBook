@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reading Tracker</title>
+  <title>Reading Notebook</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
@@ -14,12 +14,12 @@
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand">
         <div>
-          <strong>Reading Tracker</strong>
-          <span>Personal library</span>
+          <strong>Reading Notebook</strong>
+          <span>Personal notes</span>
         </div>
       </div>
 
-      <nav class="nav-list" aria-label="Reading sections">
+      <nav class="nav-list" aria-label="Notebook sections">
         <a class="nav-item active" href="index.html" aria-current="page">
           Dashboard
         </a>
@@ -36,8 +36,8 @@
     <main class="page">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Reader workspace</p>
-          <h1>Track every page, quote, and idea.</h1>
+          <p class="eyebrow">Notebook workspace</p>
+          <h1>Keep every quote, page, and idea close.</h1>
         </div>
         <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
       </header>
@@ -47,31 +47,23 @@
         <div class="hero-copy">
           <span class="status-pill" data-hero-status>Upload a PDF</span>
           <h2 data-hero-title>Your real books will appear here.</h2>
-          <p data-hero-meta>Choose a PDF to create a saved book with its own reader and progress.</p>
-          <div class="progress-block">
-            <div class="progress-meta">
-              <span>Reading progress</span>
-              <strong data-hero-progress>0%</strong>
-            </div>
-            <div class="progress-track" aria-hidden="true">
-              <span data-hero-progress-bar style="width: 0%"></span>
-            </div>
-          </div>
+          <p data-hero-meta>Choose a PDF to create a saved book with its own notes and quotes.</p>
+          <a class="hero-action" data-hero-link href="shelf.html">Open Shelf</a>
         </div>
       </section>
 
-      <section class="stats-grid" aria-label="Reading statistics">
+      <section class="stats-grid" aria-label="Notebook overview">
         <article class="stat-card">
           <span>Books</span>
           <strong data-stat-books>0</strong>
           <p>On your shelf</p>
         </article>
         <article class="stat-card accent-green">
-          <span>Pages read</span>
+          <span>Read pages</span>
           <strong data-stat-pages>0</strong>
-          <p>Current saved pages</p>
+          <p>Places you can return to</p>
         </article>
-        <article class="stat-card accent-coral">
+        <article class="stat-card accent-gold">
           <span>Quotes</span>
           <strong data-stat-quotes>0</strong>
           <p>Saved quote notes</p>
@@ -83,13 +75,22 @@
           <div class="section-header">
             <div>
               <p class="eyebrow">Library</p>
-              <h2>Active books with captures</h2>
+              <h2>Books with notes</h2>
             </div>
-            <button class="ghost-action" type="button">Filter</button>
+            <a class="ghost-action link-action" href="shelf.html">Manage Shelf</a>
           </div>
 
           <div class="book-list" data-dashboard-books></div>
         </div>
+        <aside class="insight-panel">
+          <div class="section-header compact">
+            <div>
+              <p class="eyebrow">Recent notes</p>
+              <h2>Ideas worth returning to</h2>
+            </div>
+          </div>
+          <div class="recent-quotes" data-recent-quotes></div>
+        </aside>
       </section>
     </main>
   </div>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reader | Reading Tracker</title>
+  <title>Reader | Reading Notebook</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
@@ -15,21 +15,21 @@
     <aside class="sidebar" aria-label="Main navigation">
       <div class="brand">
         <div>
-          <strong>Reading Tracker</strong>
-          <span>Personal library</span>
+          <strong>Reading Notebook</strong>
+          <span>Personal notes</span>
         </div>
       </div>
 
-      <nav class="nav-list" aria-label="Reading sections">
+      <nav class="nav-list" aria-label="Notebook sections">
         <a class="nav-item" href="index.html">Dashboard</a>
         <a class="nav-item active" href="shelf.html" aria-current="page">Shelf</a>
         <a class="nav-item" href="notes.html">Notes</a>
       </nav>
 
       <div class="sidebar-panel">
-        <span class="panel-label">Reading now</span>
+        <span class="panel-label">Open book</span>
         <strong id="readerSidebarTitle">PDF book</strong>
-        <p id="readerSidebarMeta">Loading saved progress.</p>
+        <p id="readerSidebarMeta">Loading saved page.</p>
       </div>
     </aside>
 
@@ -50,8 +50,12 @@
           <div class="reader-toolbar">
             <button class="ghost-action" id="prevPage" type="button">Previous</button>
             <div class="reader-status">
-              <strong id="pageStatus">Page - of -</strong>
-              <span id="progressStatus">0% complete</span>
+              <strong class="page-jump-status" id="pageStatus">
+                <span>Page</span>
+                <input id="pageJumpInput" type="number" min="1" value="1" aria-label="Jump to page">
+                <span>of <span id="pageTotal">-</span></span>
+              </strong>
+              <span id="progressStatus">Page position</span>
             </div>
             <div class="zoom-controls" aria-label="Zoom controls">
               <button class="ghost-action" id="zoomOut" type="button" aria-label="Zoom out">-</button>
@@ -94,6 +98,10 @@
             <label class="field-label">
               <span>Side note</span>
               <textarea class="field-input text-area" name="note" rows="3" placeholder="Why does it matter?"></textarea>
+            </label>
+            <label class="field-label">
+              <span>Tags</span>
+              <input class="field-input" name="tags" type="text" placeholder="theme, character, idea">
             </label>
             <button class="primary-action" type="submit">Save Note</button>
           </form>

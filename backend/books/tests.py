@@ -46,7 +46,6 @@ class BookApiTests(TestCase):
                 "books": 2,
                 "pagesRead": 16,
                 "quotes": 3,
-                "summaries": 1,
             },
         )
 
@@ -117,6 +116,8 @@ class BookApiTests(TestCase):
         self.assertEqual(updated["author"], "New Author")
         self.assertEqual(updated["currentPage"], 10)
         self.assertEqual(updated["cover"], "RN")
+        self.assertTrue(updated["lastReadAt"])
+        self.assertTrue(updated["readingDates"])
 
     def test_patch_rejects_invalid_json_and_blank_title(self):
         book = self.create_book()
@@ -154,7 +155,7 @@ class BookApiTests(TestCase):
 
         response = self.client.post(
             f"/api/books/{book.id}/captures/",
-            data={"type": "notes", "quote": "Important line", "note": "Remember", "page": 99},
+            data={"type": "notes", "quote": "Important line", "note": "Remember", "tags": ["theme"], "page": 99},
             content_type="application/json",
         )
 
@@ -162,6 +163,7 @@ class BookApiTests(TestCase):
         capture = response.json()["capture"]
         self.assertEqual(capture["quote"], "Important line")
         self.assertEqual(capture["note"], "Remember")
+        self.assertEqual(capture["tags"], ["theme"])
         self.assertEqual(capture["page"], 8)
         book.refresh_from_db()
         self.assertEqual(book.notes[0]["id"], capture["id"])
@@ -185,6 +187,24 @@ class BookApiTests(TestCase):
         self.assertEqual(missing_quote.status_code, 400)
         self.assertEqual(missing_quote.json()["error"], "quote is required.")
 
+    def test_delete_capture_removes_quote(self):
+        book = self.create_book(notes=[{"id": "quote-1", "quote": "Line"}])
+
+        response = self.client.delete(f"/api/books/{book.id}/captures/quote-1/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted"], True)
+        book.refresh_from_db()
+        self.assertEqual(book.notes, [])
+
+    def test_delete_capture_returns_not_found(self):
+        book = self.create_book(notes=[{"id": "quote-1", "quote": "Line"}])
+
+        response = self.client.delete(f"/api/books/{book.id}/captures/missing/")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"], "Quote not found.")
+
     def test_not_found_and_method_errors_are_json(self):
         missing_id = "00000000-0000-0000-0000-000000000000"
 
@@ -199,3 +219,12 @@ class BookApiTests(TestCase):
         method = self.client.delete("/api/books/")
         self.assertEqual(method.status_code, 405)
         self.assertEqual(method.json()["error"], "Method not allowed.")
+
+    def test_delete_removes_book(self):
+        book = self.create_book()
+
+        response = self.client.delete(f"/api/books/{book.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted"], True)
+        self.assertFalse(Book.objects.filter(id=book.id).exists())
