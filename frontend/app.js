@@ -13,6 +13,7 @@ let uploadInProgress = false;
 let storagePersistencePromise;
 let tesseractPromise;
 let jsPdfPromise;
+let deferredInstallPrompt;
 
 function ensureStatusRegion() {
   let region = document.querySelector("[data-app-status]");
@@ -37,6 +38,16 @@ function showStatus(message, type = "info") {
   region.hideTimer = window.setTimeout(() => {
     region.hidden = true;
   }, type === "error" ? 7000 : 4200);
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch((error) => {
+      console.warn("Service worker could not be registered", error);
+    });
+  });
 }
 
 function openDatabase() {
@@ -640,19 +651,25 @@ function bindUploadButtons() {
   });
 }
 
-function getActiveShelfFilter() {
-  return document.querySelector("[data-shelf-filter].active")?.dataset.shelfFilter || "all";
+function getShelfSearchQuery() {
+  return normalizeCaptureText(document.querySelector("[data-shelf-search]")?.value || "").toLowerCase();
 }
 
 function getActiveShelfSort() {
   return document.querySelector("[data-shelf-sort]")?.value || "recent";
 }
 
-function matchesShelfFilter(book, filter) {
-  const currentPage = Number(book.currentPage || 1);
+function matchesShelfSearch(book, query) {
+  if (!query) return true;
 
-  if (filter === "to-read") return currentPage <= 1;
-  return true;
+  const searchableText = [
+    book.title,
+    book.author,
+    book.fileName,
+    book.cover,
+  ].map((value) => normalizeCaptureText(String(value || "")).toLowerCase()).join(" ");
+
+  return searchableText.includes(query);
 }
 
 function sortShelfBooks(books, sort) {
@@ -667,22 +684,39 @@ function sortShelfBooks(books, sort) {
 }
 
 function bindShelfFilters() {
-  document.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-shelf-filter]");
-    if (!button) return;
-
-    document.querySelectorAll("[data-shelf-filter]").forEach((chip) => {
-      const active = chip === button;
-      chip.classList.toggle("active", active);
-      chip.setAttribute("aria-pressed", String(active));
-    });
-
-    await renderShelf();
-  });
-
   document.addEventListener("change", async (event) => {
     if (!event.target.matches("[data-shelf-sort]")) return;
     await renderShelf();
+  });
+
+  document.addEventListener("input", async (event) => {
+    if (!event.target.matches("[data-shelf-search]")) return;
+    await renderShelf();
+  });
+}
+
+function bindInstallPrompt() {
+  const installButton = document.querySelector("[data-install-app]");
+  if (!installButton) return;
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    installButton.hidden = false;
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    installButton.hidden = true;
+    showStatus("QuoteBook was installed.");
+  });
+
+  installButton.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    installButton.hidden = true;
   });
 }
 
@@ -1153,13 +1187,13 @@ async function renderShelf(loadedBooks) {
     return;
   }
 
-  const filter = getActiveShelfFilter();
+  const query = getShelfSearchQuery();
   const visibleBooks = sortShelfBooks(
-    books.filter((book) => matchesShelfFilter(book, filter)),
+    books.filter((book) => matchesShelfSearch(book, query)),
     getActiveShelfSort()
   );
   if (!visibleBooks.length) {
-    renderEmptyState(grid, "No books match this shelf filter yet.");
+    renderEmptyState(grid, "No books match your search yet.", "No matching books");
     fitSidebarText();
     return;
   }
@@ -1730,7 +1764,9 @@ async function renderReader() {
 }
 
 async function init() {
+  registerServiceWorker();
   bindUploadButtons();
+  bindInstallPrompt();
   bindRenameControls();
   bindNotesTools();
   bindShelfFilters();
@@ -1750,5 +1786,5 @@ async function init() {
 
 init().catch((error) => {
   console.error(error);
-  showStatus("Reading Notebook could not start. Refresh the page or restart the server with make run.", "error");
+  showStatus("QuoteBook could not start. Refresh the page or restart the server with make run.", "error");
 });

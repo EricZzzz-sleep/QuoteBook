@@ -1,6 +1,6 @@
-# Reading Notebook
+# QuoteBook
 
-Reading Notebook is a personal PDF reading workspace for keeping books, saved pages, quotes, side notes, and tags in one place. It is designed as a note-taking helper rather than a completion tracker.
+QuoteBook is a personal PDF reading workspace for keeping books, saved pages, quotes, side notes, and tags in one place. It is designed as a note-taking helper rather than a completion tracker.
 
 ## Features
 
@@ -51,29 +51,58 @@ The Django backend serves the frontend pages, stores book metadata, exposes the 
 
 ## Run Locally
 
-From the project root:
+You need Python 3.10 or newer. From the project root, run one command:
 
 ```bash
-make install
-make run
+python3 run.py
 ```
 
-Use `make install` the first time to install backend dependencies. `make run` serves the app and API together at:
+On Windows, use:
+
+```bash
+python run.py
+```
+
+The launcher creates a local `.venv`, installs Django, prepares the SQLite database, and serves the app and API together at:
 
 ```text
 http://localhost:8000
 ```
 
+If port `8000` is busy, choose another port:
+
+```bash
+PORT=8002 python3 run.py
+```
+
+If you already use Make, this also works:
+
+```bash
+make run
+```
+
+## Install As A Laptop App
+
+QuoteBook is also an installable web app. After it is opened from a hosted URL, users can install it from the browser and launch it from their laptop like a normal app.
+
+To publish it online without a backend, host the static frontend files with GitHub Pages, Netlify, Vercel, or any static web host:
+
+```text
+frontend/
+```
+
+Static hosting uses the browser's local storage fallback, so each person's books, PDFs, and notes stay on their own laptop. For shared server storage, deploy the Django backend and serve the same frontend from Django.
+
+Once hosted, open the site in Chrome, Edge, or Safari and use the browser's Install/Add to Dock option. On supported browsers, the dashboard also shows an `Install App` button.
+
 If you prefer to run Django manually:
 
 ```bash
-python3 -m pip install -r backend/requirements.txt
+.venv/bin/python -m pip install -r backend/requirements.txt
 cd backend
-python3 manage.py migrate
-python3 manage.py runserver 8000
+../.venv/bin/python manage.py migrate
+../.venv/bin/python manage.py runserver 8000
 ```
-
-If port `8000` is busy, use another port such as `8002`.
 
 ## Main Pages
 

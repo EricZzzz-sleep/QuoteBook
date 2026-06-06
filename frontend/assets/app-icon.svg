@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">QuoteBook</title>
+  <rect width="512" height="512" rx="96" fill="#2f7d7a"/>
+  <path d="M132 128h244c26 0 46 20 46 46v236H178c-26 0-46-20-46-46V128Z" fill="#17212b" opacity=".22"/>
+  <path d="M112 106h250c31 0 56 25 56 56v250H168c-31 0-56-25-56-56V106Z" fill="#fffdf8"/>
+  <path d="M158 106h250c31 0 56 25 56 56v250H214c-31 0-56-25-56-56V106Z" fill="#f3c86a"/>
+  <path d="M158 106v306" stroke="#17212b" stroke-width="18" stroke-linecap="round"/>
+  <path d="M306 106h74v176l-37-31-37 31V106Z" fill="#cf6f56"/>
+  <path d="M306 106h74v176l-37-31-37 31V106Z" stroke="#17212b" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M208 190h86M208 232h68M208 274h86" stroke="#17212b" stroke-width="16" stroke-linecap="round"/>
+</svg>
