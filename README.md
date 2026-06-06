@@ -49,7 +49,53 @@ ReadingTracker/
 
 The Django backend serves the frontend pages, stores book metadata, exposes the API, and saves uploaded PDFs under `backend/uploads/pdfs/`. The root `index.html` redirects to the dashboard for easier direct opening and deployment.
 
-## Run Locally
+## Download Or Install
+
+There are two easy ways to use QuoteBook on a laptop.
+
+### Option 1: Install From The Website
+
+This is the best option for most people after QuoteBook is published online.
+
+1. Open the QuoteBook website link.
+2. Click `Install App` on the dashboard if the button appears.
+3. If there is no button, use the browser menu:
+   - Chrome or Edge: click the install icon in the address bar, or open the three-dot menu and choose `Install QuoteBook`.
+   - Safari on macOS: open `File` and choose `Add to Dock`.
+4. Open QuoteBook from your laptop's Applications, Dock, Start menu, or Launchpad.
+
+When installed from a static website, each person's PDFs and notes stay on their own laptop in browser storage.
+
+### Option 2: Download The Project
+
+Use this if you want to run QuoteBook directly from the downloaded files.
+
+1. Go to the project's GitHub page.
+2. Click the green `Code` button.
+3. Click `Download ZIP`.
+4. Unzip the downloaded file.
+5. Open a terminal in the unzipped `ReadingTracker` folder.
+6. Run:
+
+```bash
+python3 run.py
+```
+
+On Windows, run:
+
+```bash
+python run.py
+```
+
+Then open:
+
+```text
+http://localhost:8000
+```
+
+The first launch may take a minute because QuoteBook creates a local `.venv`, installs Django, and prepares the SQLite database.
+
+## Run Locally For Development
 
 You need Python 3.10 or newer. From the project root, run one command:
 
@@ -81,9 +127,9 @@ If you already use Make, this also works:
 make run
 ```
 
-## Install As A Laptop App
+## Publish Online
 
-QuoteBook is also an installable web app. After it is opened from a hosted URL, users can install it from the browser and launch it from their laptop like a normal app.
+QuoteBook is an installable web app. After it is opened from a hosted URL, users can install it from the browser and launch it from their laptop like a normal app.
 
 To publish it online without a backend, host the static frontend files with GitHub Pages, Netlify, Vercel, or any static web host:
 
@@ -93,7 +139,7 @@ frontend/
 
 Static hosting uses the browser's local storage fallback, so each person's books, PDFs, and notes stay on their own laptop. For shared server storage, deploy the Django backend and serve the same frontend from Django.
 
-Once hosted, open the site in Chrome, Edge, or Safari and use the browser's Install/Add to Dock option. On supported browsers, the dashboard also shows an `Install App` button.
+Once hosted, share the website link. Users can open it in Chrome, Edge, or Safari and use the browser's Install/Add to Dock option. On supported browsers, the dashboard also shows an `Install App` button.
 
 If you prefer to run Django manually:
 
