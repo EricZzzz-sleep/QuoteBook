@@ -13,42 +13,6 @@ QuoteBook is a personal PDF reading workspace for keeping books, saved pages, qu
 - Export one book's saved quotes as a PDF.
 - Fall back to browser storage when the Django backend is unavailable.
 
-## Tech Stack
-
-- Frontend: HTML, CSS, JavaScript
-- Backend: Django
-- Database: SQLite for local development
-- PDF rendering: PDF.js
-- OCR fallback: Tesseract.js
-- PDF export: jsPDF
-
-## Project Structure
-
-```text
-ReadingTracker/
-├── frontend/
-│   ├── index.html
-│   ├── shelf.html
-│   ├── notes.html
-│   ├── quotes.html
-│   ├── reader.html
-│   ├── styles.css
-│   ├── app.js
-│   └── assets/
-├── backend/
-│   ├── books/
-│   ├── reading_tracker/
-│   ├── uploads/
-│   ├── manage.py
-│   └── requirements.txt
-├── index.html
-├── Makefile
-├── README.md
-└── LICENSE
-```
-
-The Django backend serves the frontend pages, stores book metadata, exposes the API, and saves uploaded PDFs under `backend/uploads/pdfs/`. The root `index.html` redirects to the dashboard for easier direct opening and deployment.
-
 ## Download QuoteBook
 
 Download the installer for your laptop:
