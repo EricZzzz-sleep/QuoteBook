@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -f "dist/QuoteBook-mac.dmg" ]]; then
-  echo "dist/QuoteBook-mac.dmg already exists."
+arch="${MAC_ARCH:-$(uname -m)}"
+if [[ "$arch" == "x86_64" ]]; then
+  arch="x64"
+fi
+
+dmg_path="dist/QuoteBook-mac-${arch}.dmg"
+
+if [[ -f "$dmg_path" ]]; then
+  echo "$dmg_path already exists."
   exit 0
 fi
 
@@ -14,10 +21,10 @@ if [[ -z "$app_path" ]]; then
 fi
 
 echo "Creating fallback DMG from $app_path"
-rm -f dist/QuoteBook-mac.dmg
+rm -f "$dmg_path"
 hdiutil create \
   -volname "QuoteBook" \
   -srcfolder "$app_path" \
   -ov \
   -format UDZO \
-  dist/QuoteBook-mac.dmg
+  "$dmg_path"

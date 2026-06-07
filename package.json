@@ -8,7 +8,9 @@
     "check:desktop": "node --check desktop/main.js",
     "icons": "node scripts/create_desktop_icons.js",
     "build:backend": "node scripts/run_pyinstaller.js",
-    "build:mac": "npm run icons && npm run build:backend && electron-builder --mac dmg",
+    "build:mac": "npm run build:mac:arm64",
+    "build:mac:arm64": "npm run icons && npm run build:backend && electron-builder --mac dmg --arm64",
+    "build:mac:x64": "npm run icons && npm run build:backend && electron-builder --mac dmg --x64",
     "build:win": "npm run icons && npm run build:backend && electron-builder --win nsis"
   },
   "build": {
@@ -36,7 +38,7 @@
       ]
     },
     "dmg": {
-      "artifactName": "QuoteBook-mac.dmg"
+      "artifactName": "QuoteBook-mac-${arch}.dmg"
     },
     "win": {
       "icon": "desktop/build/icon.ico",

@@ -12,8 +12,20 @@ permissions:
 
 jobs:
   build-mac:
-    name: Build Mac installer
-    runs-on: macos-latest
+    name: Build Mac installer (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+            script: build:mac:arm64
+            file_arch: arm64
+          - arch: x64
+            runner: macos-15-intel
+            script: build:mac:x64
+            file_arch: x86_64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,9 +46,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - name: Build Mac installer
-        id: build-mac
-        continue-on-error: true
-        run: npm run build:mac
+        run: npm run ${{ matrix.script }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERTIFICATE == '' && 'false' || 'true' }}
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
@@ -44,21 +54,25 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Create Mac DMG fallback
-        if: always()
-        run: bash scripts/create_mac_dmg_fallback.sh
       - name: Upload Mac artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: QuoteBook-mac
-          path: dist/QuoteBook-mac.dmg
-          if-no-files-found: warn
+          name: QuoteBook-mac-${{ matrix.arch }}
+          path: dist/QuoteBook-mac-${{ matrix.arch }}.dmg
+          if-no-files-found: error
       - name: List Mac build output
-        if: always()
         run: find dist -maxdepth 2 -print
       - name: Verify Mac installer
-        run: test -f dist/QuoteBook-mac.dmg
+        run: test -f dist/QuoteBook-mac-${{ matrix.arch }}.dmg
+      - name: Verify Mac app architecture
+        run: |
+          mount_path="/tmp/QuoteBook-${{ matrix.arch }}"
+          mkdir -p "$mount_path"
+          hdiutil attach "dist/QuoteBook-mac-${{ matrix.arch }}.dmg" -readonly -nobrowse -mountpoint "$mount_path"
+          trap 'hdiutil detach "$mount_path"' EXIT
+          test -d "$mount_path/QuoteBook.app"
+          file "$mount_path/QuoteBook.app/Contents/MacOS/QuoteBook" | grep "${{ matrix.file_arch }}"
+          file "$mount_path/QuoteBook.app/Contents/Resources/backend/quotebook-backend" | grep "${{ matrix.file_arch }}"
 
   build-windows:
     name: Build Windows installer
@@ -75,18 +89,15 @@ jobs:
       - run: python -m pip install -r backend/requirements-desktop.txt
       - run: npm ci
       - name: Build Windows installer
-        id: build-windows
-        continue-on-error: true
         run: npm run build:win
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Upload Windows artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: QuoteBook-windows
           path: dist/QuoteBook-windows.exe
-          if-no-files-found: warn
+          if-no-files-found: error
       - name: Verify Windows installer
         shell: pwsh
         run: |
@@ -106,7 +117,8 @@ jobs:
           path: release-assets
       - name: Verify release assets
         run: |
-          test -f release-assets/QuoteBook-mac/QuoteBook-mac.dmg
+          test -f release-assets/QuoteBook-mac-arm64/QuoteBook-mac-arm64.dmg
+          test -f release-assets/QuoteBook-mac-x64/QuoteBook-mac-x64.dmg
           test -f release-assets/QuoteBook-windows/QuoteBook-windows.exe
       - name: Attach installers to published release
         if: github.event_name == 'release'
@@ -115,7 +127,8 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            release-assets/QuoteBook-mac/QuoteBook-mac.dmg \
+            release-assets/QuoteBook-mac-arm64/QuoteBook-mac-arm64.dmg \
+            release-assets/QuoteBook-mac-x64/QuoteBook-mac-x64.dmg \
             release-assets/QuoteBook-windows/QuoteBook-windows.exe \
             --clobber
       - name: Create latest download release
@@ -125,9 +138,10 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest \
-            release-assets/QuoteBook-mac/QuoteBook-mac.dmg \
+            release-assets/QuoteBook-mac-arm64/QuoteBook-mac-arm64.dmg \
+            release-assets/QuoteBook-mac-x64/QuoteBook-mac-x64.dmg \
             release-assets/QuoteBook-windows/QuoteBook-windows.exe \
             --title "QuoteBook Latest" \
-            --notes "Latest unsigned QuoteBook desktop installers for macOS and Windows." \
+            --notes "Latest QuoteBook desktop installers for macOS and Windows. Mac builds are architecture-specific: use arm64 for Apple Silicon and x64 for Intel." \
             --target "$GITHUB_SHA" \
             --latest
