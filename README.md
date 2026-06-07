@@ -58,6 +58,8 @@ Download the installer for your laptop:
 
 These links download the latest installer from GitHub Releases. The first version is unsigned, so macOS or Windows may show a security warning before opening it.
 
+If a download link returns `404`, wait for the `Build desktop installers` GitHub Actions workflow to finish after the latest push to `main`. That workflow creates the GitHub Release and uploads the installer files.
+
 After installing, open QuoteBook from your Applications folder, Dock, Start menu, or Launchpad. Your PDFs and notes are saved locally on your laptop in QuoteBook's app-data folder.
 
 ## Web Version
