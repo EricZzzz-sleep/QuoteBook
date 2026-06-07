@@ -17,17 +17,16 @@ QuoteBook is a personal PDF reading workspace for keeping books, saved pages, qu
 
 Download the installer for your laptop:
 
-- [Download for Mac Apple Silicon](https://github.com/EricZzzz-sleep/QuoteBook/releases/latest/download/QuoteBook-mac-arm64.dmg) for M1, M2, M3, M4, or newer Macs.
-- [Download for Mac Intel](https://github.com/EricZzzz-sleep/QuoteBook/releases/latest/download/QuoteBook-mac-x64.dmg) for older Intel MacBooks.
+- [Download for Mac Apple Silicon](https://github.com/EricZzzz-sleep/QuoteBook/releases/latest/download/QuoteBook-mac.dmg) for M1, M2, M3, M4, or newer Macs.
 - [Download for Windows](https://github.com/EricZzzz-sleep/QuoteBook/releases/latest/download/QuoteBook-windows.exe)
 
-These links download the latest installer from GitHub Releases. Mac downloads are architecture-specific: use Apple Silicon for newer M-series Macs and Intel for older Intel Macs.
+These links download the latest installer from GitHub Releases. The current Mac download is for Apple Silicon. The release workflow also builds `QuoteBook-mac-arm64.dmg` and `QuoteBook-mac-x64.dmg`; use the x64 file from the latest release for older Intel MacBooks once that workflow has published.
 
 On macOS, signed and notarized builds should open normally. If QuoteBook is blocked because Apple cannot verify it is free of malware, the downloaded build is an unsigned fallback. Open `System Settings`, go to `Privacy & Security`, scroll to the security message for QuoteBook, and click `Open Anyway`. You can also try opening the Applications folder, Control-clicking `QuoteBook`, choosing `Open`, then choosing `Open` again. This warning is expected for fallback builds until the Mac app is signed and notarized with an Apple Developer account.
 
 If a download link returns `404`, wait for the `Build desktop installers` GitHub Actions workflow to finish after the latest push to `main`. That workflow creates the GitHub Release and uploads the installer files.
 
-If the workflow fails, open GitHub Releases, create a release with the tag `latest`, and upload the local files `dist/QuoteBook-mac-arm64.dmg` and `dist/QuoteBook-mac-x64.dmg` as temporary Mac downloads while the workflow is fixed.
+If the workflow fails, open GitHub Releases, create a release with the tag `latest`, and upload the local files `dist/QuoteBook-mac.dmg`, `dist/QuoteBook-mac-arm64.dmg`, and `dist/QuoteBook-mac-x64.dmg` as temporary Mac downloads while the workflow is fixed.
 
 To remove the macOS security warning for everyone, add these GitHub Actions secrets and rerun the `Build desktop installers` workflow:
 

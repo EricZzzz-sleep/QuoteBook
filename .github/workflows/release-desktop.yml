@@ -54,16 +54,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Upload Mac artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: QuoteBook-mac-${{ matrix.arch }}
-          path: dist/QuoteBook-mac-${{ matrix.arch }}.dmg
-          if-no-files-found: error
       - name: List Mac build output
         run: find dist -maxdepth 2 -print
       - name: Verify Mac installer
         run: test -f dist/QuoteBook-mac-${{ matrix.arch }}.dmg
+      - name: Create compatible Apple Silicon Mac download
+        if: matrix.arch == 'arm64'
+        run: cp dist/QuoteBook-mac-arm64.dmg dist/QuoteBook-mac.dmg
       - name: Verify Mac app architecture
         run: |
           mount_path="/tmp/QuoteBook-${{ matrix.arch }}"
@@ -73,6 +70,22 @@ jobs:
           test -d "$mount_path/QuoteBook.app"
           file "$mount_path/QuoteBook.app/Contents/MacOS/QuoteBook" | grep "${{ matrix.file_arch }}"
           file "$mount_path/QuoteBook.app/Contents/Resources/backend/quotebook-backend" | grep "${{ matrix.file_arch }}"
+      - name: Upload Apple Silicon Mac artifact
+        if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuoteBook-mac-${{ matrix.arch }}
+          path: |
+            dist/QuoteBook-mac-${{ matrix.arch }}.dmg
+            dist/QuoteBook-mac.dmg
+          if-no-files-found: error
+      - name: Upload Intel Mac artifact
+        if: matrix.arch == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuoteBook-mac-${{ matrix.arch }}
+          path: dist/QuoteBook-mac-${{ matrix.arch }}.dmg
+          if-no-files-found: error
 
   build-windows:
     name: Build Windows installer
@@ -118,6 +131,7 @@ jobs:
       - name: Verify release assets
         run: |
           test -f release-assets/QuoteBook-mac-arm64/QuoteBook-mac-arm64.dmg
+          test -f release-assets/QuoteBook-mac-arm64/QuoteBook-mac.dmg
           test -f release-assets/QuoteBook-mac-x64/QuoteBook-mac-x64.dmg
           test -f release-assets/QuoteBook-windows/QuoteBook-windows.exe
       - name: Attach installers to published release
@@ -128,6 +142,7 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" \
             release-assets/QuoteBook-mac-arm64/QuoteBook-mac-arm64.dmg \
+            release-assets/QuoteBook-mac-arm64/QuoteBook-mac.dmg \
             release-assets/QuoteBook-mac-x64/QuoteBook-mac-x64.dmg \
             release-assets/QuoteBook-windows/QuoteBook-windows.exe \
             --clobber
@@ -139,6 +154,7 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest \
             release-assets/QuoteBook-mac-arm64/QuoteBook-mac-arm64.dmg \
+            release-assets/QuoteBook-mac-arm64/QuoteBook-mac.dmg \
             release-assets/QuoteBook-mac-x64/QuoteBook-mac-x64.dmg \
             release-assets/QuoteBook-windows/QuoteBook-windows.exe \
             --title "QuoteBook Latest" \
