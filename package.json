@@ -15,6 +15,7 @@
     "appId": "com.quotebook.app",
     "productName": "QuoteBook",
     "afterPack": "scripts/sign_mac_app.js",
+    "afterSign": "scripts/notarize_mac_app.js",
     "files": [
       "desktop/main.js"
     ],
@@ -53,6 +54,7 @@
   },
   "devDependencies": {
     "electron": "^33.4.11",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "@electron/notarize": "^2.5.0"
   }
 }
