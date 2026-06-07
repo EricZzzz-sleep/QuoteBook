@@ -9,9 +9,9 @@
     "icons": "node scripts/create_desktop_icons.js",
     "build:backend": "node scripts/run_pyinstaller.js",
     "build:mac": "npm run build:mac:arm64",
-    "build:mac:arm64": "npm run icons && npm run build:backend && (electron-builder --mac dmg --arm64 || if [ -z \"$MAC_CERTIFICATE\" ] && [ -z \"$CSC_LINK\" ]; then MAC_ARCH=arm64 bash scripts/create_mac_dmg_fallback.sh; else exit 1; fi)",
-    "build:mac:x64": "npm run icons && npm run build:backend && (electron-builder --mac dmg --x64 || if [ -z \"$MAC_CERTIFICATE\" ] && [ -z \"$CSC_LINK\" ]; then MAC_ARCH=x64 bash scripts/create_mac_dmg_fallback.sh; else exit 1; fi)",
-    "build:win": "npm run icons && npm run build:backend && electron-builder --win nsis"
+    "build:mac:arm64": "npm run icons && npm run build:backend && (electron-builder --mac dmg --arm64 --publish never || if [ -z \"$MAC_CERTIFICATE\" ] && [ -z \"$CSC_LINK\" ]; then MAC_ARCH=arm64 bash scripts/create_mac_dmg_fallback.sh; else exit 1; fi)",
+    "build:mac:x64": "npm run icons && npm run build:backend && (electron-builder --mac dmg --x64 --publish never || if [ -z \"$MAC_CERTIFICATE\" ] && [ -z \"$CSC_LINK\" ]; then MAC_ARCH=x64 bash scripts/create_mac_dmg_fallback.sh; else exit 1; fi)",
+    "build:win": "npm run icons && npm run build:backend && electron-builder --win nsis --publish never"
   },
   "build": {
     "appId": "com.quotebook.app",

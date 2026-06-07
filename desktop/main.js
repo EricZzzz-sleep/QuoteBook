@@ -9,6 +9,8 @@ let backendProcess;
 let mainWindow;
 let backendPort;
 let isStarting = false;
+let isQuitting = false;
+let isStoppingBackend = false;
 
 function isDev() {
   return !app.isPackaged;
@@ -57,7 +59,38 @@ function backendPackagedCommand(port, dataDir) {
 }
 
 function isWindowAlive(window) {
-  return window && !window.isDestroyed();
+  try {
+    return Boolean(window && !window.isDestroyed());
+  } catch {
+    return false;
+  }
+}
+
+function sendToMainWindow(channel, ...args) {
+  const window = mainWindow;
+  try {
+    if (!isWindowAlive(window)) return false;
+    const { webContents } = window;
+    if (!webContents || webContents.isDestroyed()) return false;
+    webContents.send(channel, ...args);
+    return true;
+  } catch {
+    if (mainWindow === window) mainWindow = null;
+    return false;
+  }
+}
+
+function showMainWindow() {
+  const window = mainWindow;
+  try {
+    if (!isWindowAlive(window)) return false;
+    window.show();
+    window.focus();
+    return true;
+  } catch {
+    if (mainWindow === window) mainWindow = null;
+    return false;
+  }
 }
 
 function waitForBackend(port, timeoutMs = 30000) {
@@ -102,11 +135,11 @@ async function startBackend() {
   });
 
   backendProcess.on("exit", (code) => {
+    const shouldNotify = code !== 0 && !isQuitting && !isStoppingBackend;
     backendProcess = null;
     backendPort = null;
-    if (code !== 0 && isWindowAlive(mainWindow) && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("backend-exited", code);
-    }
+    isStoppingBackend = false;
+    if (shouldNotify) sendToMainWindow("backend-exited", code);
   });
 
   await waitForBackend(port);
@@ -145,7 +178,12 @@ async function createWindow(port) {
 }
 
 function stopBackend() {
-  if (!backendProcess || backendProcess.killed) return;
+  if (!backendProcess || backendProcess.killed) {
+    backendProcess = null;
+    backendPort = null;
+    return;
+  }
+  isStoppingBackend = true;
   backendProcess.kill();
   backendProcess = null;
   backendPort = null;
@@ -155,8 +193,7 @@ async function startApp() {
   if (isStarting) return;
 
   if (isWindowAlive(mainWindow)) {
-    mainWindow.show();
-    mainWindow.focus();
+    showMainWindow();
     return;
   }
 
@@ -178,15 +215,16 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0 || !isWindowAlive(mainWindow)) {
       startApp();
     } else {
-      mainWindow.show();
-      mainWindow.focus();
+      showMainWindow();
     }
   });
 });
 
-app.on("before-quit", stopBackend);
+app.on("before-quit", () => {
+  isQuitting = true;
+  stopBackend();
+});
 
 app.on("window-all-closed", () => {
-  stopBackend();
-  if (process.platform !== "darwin") app.quit();
+  app.quit();
 });
