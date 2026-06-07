@@ -53,6 +53,8 @@ The Django backend serves the frontend pages, stores book metadata, exposes the 
 
 There are two easy ways to use QuoteBook on a laptop.
 
+**Download QuoteBook:** [Click here to download the ZIP](https://github.com/EricZzzz-sleep/ReadingTracker/archive/refs/heads/main.zip)
+
 ### Option 1: Install From The Website
 
 This is the best option for most people after QuoteBook is published online.
@@ -70,12 +72,10 @@ When installed from a static website, each person's PDFs and notes stay on their
 
 Use this if you want to run QuoteBook directly from the downloaded files.
 
-1. Go to the project's GitHub page.
-2. Click the green `Code` button.
-3. Click `Download ZIP`.
-4. Unzip the downloaded file.
-5. Open a terminal in the unzipped `ReadingTracker` folder.
-6. Run:
+1. Click the download link above.
+2. Unzip the downloaded file.
+3. Open a terminal in the unzipped `ReadingTracker-main` folder.
+4. Run:
 
 ```bash
 python3 run.py
