@@ -7,6 +7,8 @@ const path = require("node:path");
 
 let backendProcess;
 let mainWindow;
+let backendPort;
+let isStarting = false;
 
 function isDev() {
   return !app.isPackaged;
@@ -54,6 +56,10 @@ function backendPackagedCommand(port, dataDir) {
   };
 }
 
+function isWindowAlive(window) {
+  return window && !window.isDestroyed();
+}
+
 function waitForBackend(port, timeoutMs = 30000) {
   const startedAt = Date.now();
 
@@ -96,17 +102,20 @@ async function startBackend() {
   });
 
   backendProcess.on("exit", (code) => {
-    if (code !== 0 && mainWindow) {
+    backendProcess = null;
+    backendPort = null;
+    if (code !== 0 && isWindowAlive(mainWindow) && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("backend-exited", code);
     }
   });
 
   await waitForBackend(port);
+  backendPort = port;
   return port;
 }
 
 async function createWindow(port) {
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 980,
@@ -119,32 +128,58 @@ async function createWindow(port) {
     },
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow = window;
+
+  window.on("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 
-  await mainWindow.loadURL(`http://127.0.0.1:${port}/`);
+  await window.loadURL(`http://127.0.0.1:${port}/`);
 }
 
 function stopBackend() {
   if (!backendProcess || backendProcess.killed) return;
   backendProcess.kill();
   backendProcess = null;
+  backendPort = null;
 }
 
-app.whenReady().then(async () => {
+async function startApp() {
+  if (isStarting) return;
+
+  if (isWindowAlive(mainWindow)) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
+  isStarting = true;
   try {
-    const port = await startBackend();
+    const port = backendPort || await startBackend();
     await createWindow(port);
   } catch (error) {
     dialog.showErrorBox("QuoteBook could not start", error.message);
     app.quit();
+  } finally {
+    isStarting = false;
   }
+}
 
+app.whenReady().then(() => {
+  startApp();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && mainWindow) {
+    if (BrowserWindow.getAllWindows().length === 0 || !isWindowAlive(mainWindow)) {
+      startApp();
+    } else {
       mainWindow.show();
+      mainWindow.focus();
     }
   });
 });
