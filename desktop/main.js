@@ -5,6 +5,8 @@ const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 
+app.commandLine.appendSwitch("high-dpi-support", "1");
+
 let backendProcess;
 let mainWindow;
 let backendPort;

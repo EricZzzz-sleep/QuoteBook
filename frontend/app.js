@@ -1391,6 +1391,7 @@ async function renderReader() {
   let zoomLevel = 1;
   let lastPinchDistance = null;
   let currentSelectedQuote = "";
+  let renderedPageSize = { width: 0, height: 0 };
 
   title.textContent = book.title;
   sidebarTitle.textContent = book.title;
@@ -1453,18 +1454,34 @@ async function renderReader() {
 
   async function renderPageToCanvas(page, targetCanvas, targetContext, scale) {
     const viewport = page.getViewport({ scale });
-    targetCanvas.width = viewport.width;
-    targetCanvas.height = viewport.height;
-    await page.render({ canvasContext: targetContext, viewport }).promise;
+    const pixelRatio = Math.max(window.devicePixelRatio || 1, 1);
+    const outputScale = Math.min(pixelRatio, 3);
+    const cssWidth = Math.floor(viewport.width);
+    const cssHeight = Math.floor(viewport.height);
+
+    renderedPageSize = { width: cssWidth, height: cssHeight };
+    targetCanvas.width = Math.floor(cssWidth * outputScale);
+    targetCanvas.height = Math.floor(cssHeight * outputScale);
+    targetCanvas.style.width = `${cssWidth}px`;
+    targetCanvas.style.height = `${cssHeight}px`;
+
+    await page.render({
+      canvasContext: targetContext,
+      transform: outputScale === 1 ? null : [outputScale, 0, 0, outputScale, 0, 0],
+      viewport,
+    }).promise;
     return viewport;
   }
 
   function clearTextLayer() {
+    const width = renderedPageSize.width || canvas.clientWidth || canvas.width;
+    const height = renderedPageSize.height || canvas.clientHeight || canvas.height;
+
     textLayer.innerHTML = "";
-    textLayer.style.width = `${canvas.width}px`;
-    textLayer.style.height = `${canvas.height}px`;
-    pdfFrame.style.width = `${canvas.width}px`;
-    pdfFrame.style.height = `${canvas.height}px`;
+    textLayer.style.width = `${width}px`;
+    textLayer.style.height = `${height}px`;
+    pdfFrame.style.width = `${width}px`;
+    pdfFrame.style.height = `${height}px`;
     currentSelectedQuote = "";
     saveSelectedQuote.hidden = true;
   }
@@ -1522,8 +1539,8 @@ async function renderReader() {
   }
 
   function renderOcrTextLayer(words) {
-    const width = canvas.width;
-    const height = canvas.height;
+    const width = renderedPageSize.width || canvas.clientWidth || canvas.width;
+    const height = renderedPageSize.height || canvas.clientHeight || canvas.height;
     words.forEach((word) => {
       if (!word.text) return;
       appendTextSpan(
