@@ -118,6 +118,41 @@ class BookApiTests(TestCase):
         self.assertEqual(updated["cover"], "RN")
         self.assertTrue(updated["lastReadAt"])
         self.assertTrue(updated["readingDates"])
+        self.assertEqual(updated["readingActivity"][0]["pagesRead"], 8)
+
+    def test_activity_endpoint_merges_daily_reading(self):
+        book = self.create_book()
+
+        first = self.client.post(
+            f"/api/books/{book.id}/activity/",
+            data={"date": "2026-06-07", "secondsRead": 120, "pagesRead": 3, "quotesSaved": 1},
+            content_type="application/json",
+        )
+        second = self.client.post(
+            f"/api/books/{book.id}/activity/",
+            data={"date": "2026-06-07", "secondsRead": 60, "pagesRead": 2, "quotesSaved": 0},
+            content_type="application/json",
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        activity = second.json()["book"]["readingActivity"]
+        self.assertEqual(len(activity), 1)
+        self.assertEqual(activity[0]["secondsRead"], 180)
+        self.assertEqual(activity[0]["pagesRead"], 5)
+        self.assertEqual(activity[0]["quotesSaved"], 1)
+
+    def test_activity_endpoint_rejects_invalid_values(self):
+        book = self.create_book()
+
+        response = self.client.post(
+            f"/api/books/{book.id}/activity/",
+            data={"date": "not-a-date", "secondsRead": -1},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "date must use YYYY-MM-DD format.")
 
     def test_patch_rejects_invalid_json_and_blank_title(self):
         book = self.create_book()
@@ -165,8 +200,43 @@ class BookApiTests(TestCase):
         self.assertEqual(capture["note"], "Remember")
         self.assertEqual(capture["tags"], ["theme"])
         self.assertEqual(capture["page"], 8)
+        self.assertEqual(capture["status"], "new")
+        self.assertEqual(capture["reviewCount"], 0)
+        self.assertEqual(capture["lastReviewedAt"], "")
+        self.assertEqual(capture["masteredAt"], "")
         book.refresh_from_db()
         self.assertEqual(book.notes[0]["id"], capture["id"])
+        self.assertEqual(book.reading_activity[0]["quotesSaved"], 1)
+
+    def test_patch_capture_updates_review_status(self):
+        book = self.create_book(notes=[{"id": "quote-1", "quote": "Line", "status": "new", "reviewCount": 1}])
+
+        response = self.client.patch(
+            f"/api/books/{book.id}/captures/quote-1/",
+            data={"status": "mastered"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        capture = response.json()["capture"]
+        self.assertEqual(capture["status"], "mastered")
+        self.assertEqual(capture["reviewCount"], 2)
+        self.assertTrue(capture["lastReviewedAt"])
+        self.assertTrue(capture["masteredAt"])
+        book.refresh_from_db()
+        self.assertEqual(book.notes[0]["status"], "mastered")
+
+    def test_patch_capture_rejects_invalid_review_status(self):
+        book = self.create_book(notes=[{"id": "quote-1", "quote": "Line"}])
+
+        response = self.client.patch(
+            f"/api/books/{book.id}/captures/quote-1/",
+            data={"status": "done"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "status must be new, learning, or mastered.")
 
     def test_capture_rejects_invalid_payloads(self):
         book = self.create_book()

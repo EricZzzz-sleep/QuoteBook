@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import date
 
 from django.http import JsonResponse
 from django.utils import timezone
@@ -18,6 +19,7 @@ CAPTURE_REQUIRED_FIELDS = {
     "vocabulary": "word",
     "summaries": "summary",
 }
+QUOTE_REVIEW_STATUSES = {"new", "learning", "mastered"}
 
 
 def add_cors_headers(response):
@@ -49,6 +51,18 @@ def parse_positive_int(value, field_name, default=None):
         return None, f"{field_name} must be a positive integer."
     if parsed < 1:
         return None, f"{field_name} must be a positive integer."
+    return parsed, None
+
+
+def parse_nonnegative_int(value, field_name, default=0):
+    if value in (None, ""):
+        return default, None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None, f"{field_name} must be a non-negative integer."
+    if parsed < 0:
+        return None, f"{field_name} must be a non-negative integer."
     return parsed, None
 
 
@@ -90,6 +104,54 @@ def add_reading_date(book, value=None):
     book.reading_dates = sorted(dates)
 
 
+def merge_reading_activity(book, data):
+    if not isinstance(data, dict):
+        return "Activity must be a JSON object."
+
+    date_value = clean_text(data.get("date") or local_date_string(timezone.now()), 10)
+    try:
+        date.fromisoformat(date_value)
+    except (TypeError, ValueError):
+        return "date must use YYYY-MM-DD format."
+
+    seconds_read, error = parse_nonnegative_int(data.get("secondsRead"), "secondsRead")
+    if error:
+        return error
+    pages_read, error = parse_nonnegative_int(data.get("pagesRead"), "pagesRead")
+    if error:
+        return error
+    quotes_saved, error = parse_nonnegative_int(data.get("quotesSaved"), "quotesSaved")
+    if error:
+        return error
+
+    if seconds_read == 0 and pages_read == 0 and quotes_saved == 0:
+        return None
+
+    activity = book.reading_activity if isinstance(book.reading_activity, list) else []
+    existing = None
+    next_activity = []
+    for entry in activity:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("date") == date_value:
+            existing = {
+                "date": date_value,
+                "secondsRead": int(entry.get("secondsRead") or 0),
+                "pagesRead": int(entry.get("pagesRead") or 0),
+                "quotesSaved": int(entry.get("quotesSaved") or 0),
+            }
+        else:
+            next_activity.append(entry)
+
+    existing = existing or {"date": date_value, "secondsRead": 0, "pagesRead": 0, "quotesSaved": 0}
+    existing["secondsRead"] += seconds_read
+    existing["pagesRead"] += pages_read
+    existing["quotesSaved"] += quotes_saved
+    next_activity.append(existing)
+    book.reading_activity = sorted(next_activity, key=lambda entry: entry.get("date", ""))
+    return None
+
+
 def serialize_book(book, request):
     return {
         "id": str(book.id),
@@ -108,6 +170,7 @@ def serialize_book(book, request):
         "summaries": book.summaries,
         "lastReadAt": book.last_read_at.isoformat() if book.last_read_at else "",
         "readingDates": book.reading_dates if isinstance(book.reading_dates, list) else [],
+        "readingActivity": book.reading_activity if isinstance(book.reading_activity, list) else [],
         "cover": book.cover,
         "coverImage": book.cover_image,
         "color": book.color,
@@ -121,6 +184,22 @@ def options_response():
 
 def count_captures(value):
     return len(value) if isinstance(value, list) else 0
+
+
+def normalize_note_capture(capture):
+    capture.setdefault("status", "new")
+    capture.setdefault("reviewCount", 0)
+    capture.setdefault("lastReviewedAt", "")
+    capture.setdefault("masteredAt", "")
+    return capture
+
+
+def parse_review_count(value):
+    try:
+        count = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(count, 0)
 
 
 @csrf_exempt
@@ -210,12 +289,20 @@ def book_detail(request, book_id):
         if "author" in data:
             book.author = clean_text(data["author"], 120)
         if "currentPage" in data:
+            previous_page = book.current_page or 1
             current_page, error = parse_positive_int(data["currentPage"], "currentPage")
             if error:
                 return json_response({"error": error}, status=400)
             book.current_page = min(current_page, book.total_pages)
             book.last_read_at = timezone.now()
             add_reading_date(book, book.last_read_at)
+            if book.current_page > previous_page:
+                activity_error = merge_reading_activity(book, {
+                    "date": local_date_string(book.last_read_at),
+                    "pagesRead": book.current_page - previous_page,
+                })
+                if activity_error:
+                    return json_response({"error": activity_error}, status=400)
         if "cover" in data:
             book.cover = clean_text(data["cover"], 12) or "PDF"
         book.save()
@@ -273,13 +360,49 @@ def book_captures(request, book_id):
     capture["id"] = str(uuid.uuid4())
     capture["page"] = min(page, book.total_pages)
     capture["createdAt"] = timezone.now().isoformat()
+    if capture_type == "notes":
+        normalize_note_capture(capture)
 
     captures = getattr(book, capture_type)
     captures.insert(0, capture)
     setattr(book, capture_type, captures)
+    if capture_type == "notes":
+        activity_error = merge_reading_activity(book, {
+            "date": local_date_string(timezone.now()),
+            "quotesSaved": 1,
+        })
+        if activity_error:
+            return json_response({"error": activity_error}, status=400)
     book.save()
 
     return json_response({"capture": capture, "book": serialize_book(book, request)}, status=201)
+
+
+@csrf_exempt
+def book_activity(request, book_id):
+    if request.method == "OPTIONS":
+        return options_response()
+
+    if request.method != "POST":
+        return json_response({"error": "Method not allowed."}, status=405)
+
+    book, error_response = get_book_or_error(book_id)
+    if error_response:
+        return error_response
+
+    data, error = parse_json_body(request)
+    if error:
+        return json_response({"error": error}, status=400)
+    if not isinstance(data, dict):
+        return json_response({"error": "Request body must be a JSON object."}, status=400)
+
+    activity_error = merge_reading_activity(book, data)
+    if activity_error:
+        return json_response({"error": activity_error}, status=400)
+    book.last_read_at = timezone.now()
+    add_reading_date(book, book.last_read_at)
+    book.save()
+    return json_response({"book": serialize_book(book, request)})
 
 
 @csrf_exempt
@@ -287,7 +410,7 @@ def book_capture_detail(request, book_id, capture_id):
     if request.method == "OPTIONS":
         return options_response()
 
-    if request.method != "DELETE":
+    if request.method not in {"PATCH", "DELETE"}:
         return json_response({"error": "Method not allowed."}, status=405)
 
     book, error_response = get_book_or_error(book_id)
@@ -295,6 +418,38 @@ def book_capture_detail(request, book_id, capture_id):
         return error_response
 
     notes = book.notes if isinstance(book.notes, list) else []
+    if request.method == "PATCH":
+        data, error = parse_json_body(request)
+        if error:
+            return json_response({"error": error}, status=400)
+        if not isinstance(data, dict):
+            return json_response({"error": "Request body must be a JSON object."}, status=400)
+
+        status = clean_text(data.get("status", ""), 24)
+        if status not in QUOTE_REVIEW_STATUSES:
+            return json_response({"error": "status must be new, learning, or mastered."}, status=400)
+
+        updated_note = None
+        now = timezone.now().isoformat()
+        next_notes = []
+        for note in notes:
+            if str(note.get("id")) == str(capture_id):
+                updated_note = normalize_note_capture({**note})
+                updated_note["status"] = status
+                updated_note["reviewCount"] = parse_review_count(updated_note.get("reviewCount")) + 1
+                updated_note["lastReviewedAt"] = now
+                updated_note["masteredAt"] = now if status == "mastered" else ""
+                next_notes.append(updated_note)
+            else:
+                next_notes.append(note)
+
+        if updated_note is None:
+            return json_response({"error": "Quote not found."}, status=404)
+
+        book.notes = next_notes
+        book.save()
+        return json_response({"capture": updated_note, "book": serialize_book(book, request)})
+
     next_notes = [note for note in notes if str(note.get("id")) != str(capture_id)]
     if len(next_notes) == len(notes):
         return json_response({"error": "Quote not found."}, status=404)

@@ -21,6 +21,7 @@ class Book(models.Model):
     summaries = models.JSONField(default=list)
     last_read_at = models.DateTimeField(null=True, blank=True)
     reading_dates = models.JSONField(default=list)
+    reading_activity = models.JSONField(default=list)
     uploaded_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

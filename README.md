@@ -1,6 +1,6 @@
 # QuoteBook
 
-QuoteBook is a personal PDF reading workspace for keeping books, saved pages, quotes, side notes, and tags in one place. It is designed as a note-taking helper rather than a completion tracker.
+QuoteBook is a personal PDF reading memory for keeping books, saved pages, quote notes, reading analytics, and goals in one place. It is designed to turn reading into visible progress rather than generic PDF comments.
 
 ## Features
 
@@ -8,6 +8,9 @@ QuoteBook is a personal PDF reading workspace for keeping books, saved pages, qu
 - Open PDFs in a browser reader with saved page position.
 - Jump directly to a page by typing a page number.
 - Select passages and save quote notes with optional tags.
+- Track active reading time, pages read, and quotes saved by day.
+- Set a daily page goal and see how many pages are left today.
+- Set per-book finish dates and calculate the pages needed per day.
 - Review quotes by book and by page.
 - Manage and delete saved quotes.
 - Export one book's saved quotes as a PDF.
@@ -100,6 +103,7 @@ cd backend
 - Dashboard: `http://localhost:8000/`
 - Shelf: `http://localhost:8000/shelf.html`
 - Notes: `http://localhost:8000/notes.html`
+- Study: `http://localhost:8000/study.html`
 - Book quotes: opened from the Notes page
 - PDF reader: opened from Shelf or a quote link
 
@@ -136,6 +140,7 @@ node --check frontend/app.js
 - Delete a quote from the reader Page Quotes panel without refreshing.
 - Open Notes and confirm it shows books only.
 - Open one book's Quotes page, use Manage Quotes, and export a quote PDF.
+- Open Study, set a daily page goal, set a book finish date, and confirm daily reading activity appears.
 - Check Shelf and Reader layouts on a narrow mobile viewport.
 
 ## My Contribution
@@ -143,12 +148,13 @@ node --check frontend/app.js
 - Designed the reading notebook experience and core user flow.
 - Built the saved-page and PDF reader interactions.
 - Implemented quote capture, tagging, quote management, and PDF export.
+- Built Study analytics for reading time, daily pages, saved quotes, and finish-date goals.
 - Built the Django API and local storage fallback behavior.
 - Created project documentation and testing notes.
 
 ## Future Improvements
 
-- Cleaner quote review and tag organization.
+- Smarter trend charts and weekly reading recommendations.
 - Backup and restore for the local notebook.
 - Optional account sync after the single-user notebook is stable.
 - Lightweight browser smoke tests for the frontend flows.

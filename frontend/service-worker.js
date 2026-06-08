@@ -1,10 +1,11 @@
-const CACHE_NAME = "reading-notebook-v1";
+const CACHE_NAME = "reading-notebook-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./shelf.html",
   "./notes.html",
   "./quotes.html",
+  "./study.html",
   "./reader.html",
   "./styles.css",
   "./app.js",

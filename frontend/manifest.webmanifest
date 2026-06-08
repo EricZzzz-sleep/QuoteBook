@@ -1,7 +1,7 @@
 {
   "name": "QuoteBook",
   "short_name": "QuoteBook",
-  "description": "A personal PDF reading workspace for saved pages, quotes, side notes, and tags.",
+  "description": "A personal PDF reading memory for saved pages, quote notes, analytics, and goals.",
   "start_url": "index.html",
   "scope": "./",
   "display": "standalone",

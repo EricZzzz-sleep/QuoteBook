@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study | QuoteBook</title>
+  <meta name="theme-color" content="#2f7d7a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/app-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/app-icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Literata:opsz,wght@7..72,600;7..72,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="study">
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <div>
+          <strong>QuoteBook</strong>
+          <span>Reading memory</span>
+        </div>
+      </div>
+
+      <nav class="nav-list" aria-label="Notebook sections">
+        <a class="nav-item" href="index.html">Dashboard</a>
+        <a class="nav-item" href="shelf.html">Shelf</a>
+        <a class="nav-item" href="notes.html">Notes</a>
+        <a class="nav-item active" href="study.html" aria-current="page">Study</a>
+      </nav>
+    </aside>
+
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Study analytics</p>
+          <h1>Track reading time, pages, quotes, and goals.</h1>
+          <p class="page-subtitle">See daily progress, set a page target, and calculate the pace needed to finish each PDF.</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
+        </div>
+      </header>
+
+      <section class="stats-grid study-stats" aria-label="Study overview" data-study-stats></section>
+
+      <section class="study-layout">
+        <div class="study-main">
+          <section class="study-panel" aria-label="Daily reading goal" data-study-goal></section>
+
+          <section class="study-panel" aria-label="Reading activity" data-study-activity></section>
+        </div>
+
+        <aside class="study-side">
+          <section class="study-panel">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">Book goals</p>
+                <h2>Finish planner</h2>
+              </div>
+            </div>
+            <div class="study-book-list" data-study-book-goals></div>
+          </section>
+          <section class="study-panel">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">How it counts</p>
+                <h2>Reader activity</h2>
+              </div>
+            </div>
+            <div class="study-note">
+              <p>Time is counted while the reader window is visible. Pages and quotes are counted when progress changes or a quote is saved.</p>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

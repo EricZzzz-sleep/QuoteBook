@@ -7,6 +7,9 @@ const PDF_JS_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.mi
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
 const JSPDF_URL = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
+const STUDY_STATUSES = new Set(["new", "learning", "mastered"]);
+const STUDY_DAILY_GOAL_KEY = "quotebook-study-daily-pages-goal";
+const STUDY_FINISH_GOALS_KEY = "quotebook-study-finish-goals";
 
 let dbPromise;
 let uploadInProgress = false;
@@ -246,6 +249,7 @@ async function updateBookPage(id, currentPage) {
 
   const book = await getBook(id);
   if (!book) return;
+  const previousPage = Number(book.currentPage || 1);
   book.currentPage = currentPage;
   const now = new Date().toISOString();
   book.lastReadAt = now;
@@ -253,7 +257,36 @@ async function updateBookPage(id, currentPage) {
   const dates = Array.isArray(book.readingDates) ? book.readingDates : [];
   const today = todayKey();
   book.readingDates = dates.includes(today) ? dates : [...dates, today];
+  if (currentPage > previousPage) {
+    mergeLocalReadingActivity(book, { date: today, pagesRead: currentPage - previousPage });
+  }
   await saveBook(book);
+}
+
+async function recordReadingActivity(id, activity) {
+  const normalized = normalizeActivityDelta(activity);
+  if (!normalized.secondsRead && !normalized.pagesRead && !normalized.quotesSaved) return null;
+
+  try {
+    const response = await apiRequest(`/api/books/${encodeURIComponent(id)}/activity/`, {
+      method: "POST",
+      body: JSON.stringify(normalized),
+    });
+    return response.book || null;
+  } catch (error) {
+    console.warn("Backend unavailable, saving reading activity locally", error);
+  }
+
+  const book = await getBook(id);
+  if (!book) return null;
+  mergeLocalReadingActivity(book, normalized);
+  const now = new Date().toISOString();
+  book.lastReadAt = now;
+  book.updatedAt = now;
+  const dates = Array.isArray(book.readingDates) ? book.readingDates : [];
+  book.readingDates = dates.includes(normalized.date) ? dates : [...dates, normalized.date].sort();
+  await saveBook(book);
+  return book;
 }
 
 async function updateBookDetails(id, title, author) {
@@ -310,12 +343,46 @@ async function addBookCapture(id, type, data) {
     createdAt: new Date().toISOString(),
     ...data,
   };
+  if (type === "notes") normalizeStudyCard(capture);
 
   if (!Array.isArray(book[type])) book[type] = [];
   book[type].unshift(capture);
+  if (type === "notes") {
+    mergeLocalReadingActivity(book, { date: todayKey(), quotesSaved: 1 });
+  }
   book.updatedAt = new Date().toISOString();
   await saveBook(book);
   return capture;
+}
+
+async function updateBookQuoteReview(bookId, quoteId, status) {
+  const nextStatus = STUDY_STATUSES.has(status) ? status : "learning";
+  try {
+    const response = await apiRequest(`/api/books/${encodeURIComponent(bookId)}/captures/${encodeURIComponent(quoteId)}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    return response.book || null;
+  } catch (error) {
+    console.warn("Backend unavailable, updating quote review locally", error);
+  }
+
+  const book = await getBook(bookId);
+  if (!book) return null;
+  const notes = Array.isArray(book.notes) ? book.notes : [];
+  const now = new Date().toISOString();
+  book.notes = notes.map((note) => {
+    if (String(note.id) !== String(quoteId)) return note;
+    const updated = normalizeStudyCard({ ...note });
+    updated.status = nextStatus;
+    updated.reviewCount = Number(updated.reviewCount || 0) + 1;
+    updated.lastReviewedAt = now;
+    updated.masteredAt = nextStatus === "mastered" ? now : "";
+    return updated;
+  });
+  book.updatedAt = now;
+  await saveBook(book);
+  return book;
 }
 
 async function deleteBookQuote(bookId, quoteId) {
@@ -372,6 +439,101 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function addDays(dateKey, days) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseNonNegativeInteger(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+}
+
+function normalizeActivityDelta(activity = {}) {
+  return {
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(activity.date || "")) ? activity.date : todayKey(),
+    secondsRead: parseNonNegativeInteger(activity.secondsRead),
+    pagesRead: parseNonNegativeInteger(activity.pagesRead),
+    quotesSaved: parseNonNegativeInteger(activity.quotesSaved),
+  };
+}
+
+function normalizeReadingActivityEntry(entry = {}) {
+  return {
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(entry.date || "")) ? entry.date : "",
+    secondsRead: parseNonNegativeInteger(entry.secondsRead),
+    pagesRead: parseNonNegativeInteger(entry.pagesRead),
+    quotesSaved: parseNonNegativeInteger(entry.quotesSaved),
+  };
+}
+
+function mergeLocalReadingActivity(book, activity) {
+  const delta = normalizeActivityDelta(activity);
+  const entries = Array.isArray(book.readingActivity) ? book.readingActivity : [];
+  const nextEntry = { date: delta.date, secondsRead: 0, pagesRead: 0, quotesSaved: 0 };
+  const nextEntries = [];
+
+  entries.forEach((entry) => {
+    const normalized = normalizeReadingActivityEntry(entry);
+    if (!normalized.date) return;
+    if (normalized.date === delta.date) {
+      nextEntry.secondsRead += normalized.secondsRead;
+      nextEntry.pagesRead += normalized.pagesRead;
+      nextEntry.quotesSaved += normalized.quotesSaved;
+      return;
+    }
+    nextEntries.push(normalized);
+  });
+
+  nextEntry.secondsRead += delta.secondsRead;
+  nextEntry.pagesRead += delta.pagesRead;
+  nextEntry.quotesSaved += delta.quotesSaved;
+  nextEntries.push(nextEntry);
+  book.readingActivity = nextEntries.sort((first, second) => first.date.localeCompare(second.date));
+}
+
+function getDailyPageGoal() {
+  try {
+    return parseNonNegativeInteger(localStorage.getItem(STUDY_DAILY_GOAL_KEY), 20);
+  } catch (error) {
+    console.warn("Daily goal could not be read", error);
+    return 20;
+  }
+}
+
+function saveDailyPageGoal(value) {
+  const goal = Math.min(Math.max(parseNonNegativeInteger(value, 20), 1), 999);
+  try {
+    localStorage.setItem(STUDY_DAILY_GOAL_KEY, String(goal));
+  } catch (error) {
+    console.warn("Daily goal could not be saved", error);
+  }
+  return goal;
+}
+
+function getFinishGoals() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STUDY_FINISH_GOALS_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    console.warn("Finish goals could not be read", error);
+    return {};
+  }
+}
+
+function saveFinishGoal(bookId, finishDate) {
+  const goals = getFinishGoals();
+  if (finishDate) goals[bookId] = finishDate;
+  else delete goals[bookId];
+  try {
+    localStorage.setItem(STUDY_FINISH_GOALS_KEY, JSON.stringify(goals));
+  } catch (error) {
+    console.warn("Finish goal could not be saved", error);
+  }
+  return goals;
+}
+
 function getBookLastReadAt(book) {
   return book.lastReadAt || book.updatedAt || book.uploadedAt || "";
 }
@@ -396,6 +558,55 @@ function normalizeTags(value) {
     .map((tag) => normalizeCaptureText(tag).replace(/^#/, ""))
     .filter(Boolean)
     .slice(0, 8);
+}
+
+function normalizeStudyCard(note) {
+  const reviewCount = Number(note.reviewCount || 0);
+  note.status = STUDY_STATUSES.has(note.status) ? note.status : "new";
+  note.reviewCount = Number.isFinite(reviewCount) && reviewCount > 0 ? Math.floor(reviewCount) : 0;
+  note.lastReviewedAt = note.lastReviewedAt || "";
+  note.masteredAt = note.status === "mastered" ? note.masteredAt || note.lastReviewedAt || "" : "";
+  return note;
+}
+
+function getQuoteStatus(note) {
+  return normalizeStudyCard({ ...note }).status;
+}
+
+function getStudyQuotes(books) {
+  return books.flatMap((book) => {
+    const notes = Array.isArray(book.notes) ? book.notes : [];
+    return notes.map((note) => normalizeStudyCard({
+      ...note,
+      bookId: book.id,
+      bookTitle: book.title,
+      bookAuthor: book.author || "",
+    }));
+  });
+}
+
+function sortStudyQueue(quotes) {
+  const statusWeight = { new: 0, learning: 1, mastered: 2 };
+  return [...quotes].sort((first, second) => {
+    const firstStatus = statusWeight[getQuoteStatus(first)] ?? 0;
+    const secondStatus = statusWeight[getQuoteStatus(second)] ?? 0;
+    if (firstStatus !== secondStatus) return firstStatus - secondStatus;
+    return new Date(first.lastReviewedAt || first.createdAt || 0) - new Date(second.lastReviewedAt || second.createdAt || 0);
+  });
+}
+
+function getThemeGroups(quotes) {
+  const groups = new Map();
+  quotes.forEach((quote) => {
+    normalizeTags(quote.tags || []).forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (!groups.has(key)) {
+        groups.set(key, { tag, quotes: [] });
+      }
+      groups.get(key).quotes.push(quote);
+    });
+  });
+  return Array.from(groups.values()).sort((first, second) => second.quotes.length - first.quotes.length || first.tag.localeCompare(second.tag));
 }
 
 function truncateEnd(value, maxLength = 50) {
@@ -606,6 +817,7 @@ async function handlePdfUpload(file) {
     summaries: [],
     lastReadAt: "",
     readingDates: [],
+    readingActivity: [],
     author: "",
     cover: getInitials(title),
     coverImage,
@@ -861,6 +1073,84 @@ function bindNotesTools() {
   });
 }
 
+function bindStudyTools() {
+  document.addEventListener("click", async (event) => {
+    const reviewButton = event.target.closest("[data-review-status]");
+    if (reviewButton) {
+      event.preventDefault();
+      await updateBookQuoteReview(reviewButton.dataset.reviewBook, reviewButton.dataset.reviewQuote, reviewButton.dataset.reviewStatus);
+      showStatus("Study card updated.");
+      await renderStudy();
+      return;
+    }
+
+    const themeButton = event.target.closest("[data-study-theme]");
+    if (themeButton) {
+      event.preventDefault();
+      const params = new URLSearchParams(window.location.search);
+      params.set("theme", themeButton.dataset.studyTheme);
+      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+      await renderStudy();
+      return;
+    }
+
+    const exportButton = event.target.closest("[data-export-study]");
+    if (!exportButton) return;
+    event.preventDefault();
+
+    const books = await getSavedBooks();
+    const quotes = getStudyQuotes(books);
+    const theme = exportButton.dataset.exportTheme;
+    const bookId = exportButton.dataset.exportBook;
+    const exportQuotes = theme
+      ? quotes.filter((quote) => normalizeTags(quote.tags || []).some((tag) => tag.toLowerCase() === theme.toLowerCase()))
+      : bookId
+        ? quotes.filter((quote) => String(quote.bookId) === String(bookId))
+        : quotes;
+    const book = bookId ? books.find((entry) => String(entry.id) === String(bookId)) : null;
+    const title = theme
+      ? `QuoteBook Study Theme: #${theme}`
+      : book
+        ? `QuoteBook Study Notes: ${book.title}`
+        : "QuoteBook Study Notes";
+    const fileName = safeFileName(theme
+      ? `study-${theme}`
+      : book
+        ? `study-${book.title}`
+        : "study-notes");
+
+    try {
+      if (exportButton.dataset.exportStudy === "pdf") {
+        await exportStudyQuotesPdf(exportQuotes, title, `${fileName}.pdf`);
+      } else {
+        downloadTextFile(`${fileName}.md`, getStudyExportRows(exportQuotes, title));
+      }
+      showStatus("Study notes exported.");
+    } catch (error) {
+      console.error(error);
+      showStatus("Study notes could not be exported.", "error");
+    }
+  });
+
+  document.addEventListener("submit", async (event) => {
+    const dailyGoalForm = event.target.closest("[data-daily-goal-form]");
+    if (dailyGoalForm) {
+      event.preventDefault();
+      saveDailyPageGoal(dailyGoalForm.elements.dailyGoal.value);
+      showStatus("Daily reading goal saved.");
+      await renderStudy();
+      return;
+    }
+
+    const finishGoalForm = event.target.closest("[data-finish-goal-form]");
+    if (!finishGoalForm) return;
+    event.preventDefault();
+    saveFinishGoal(finishGoalForm.dataset.bookId, finishGoalForm.elements.finishDate.value);
+    showStatus("Finish goal saved.");
+    await renderStudy();
+  });
+}
+
 function createBookCard(book) {
   const percent = progressPercent(book);
   const notes = captureCount(book, "notes");
@@ -956,6 +1246,7 @@ function createQuoteCard(note, options = {}) {
   const noteText = normalizeCaptureText(note.note || "");
   const page = getNotePage(note.page);
   const tags = normalizeTags(note.tags || []);
+  const status = getQuoteStatus(note);
   const deleteButton = options.canDelete && note.id
     ? `<button class="quote-delete-button" type="button" data-delete-quote="${escapeHtml(note.id)}" data-delete-quote-book="${escapeHtml(options.bookId || "")}">Delete</button>`
     : "";
@@ -963,6 +1254,7 @@ function createQuoteCard(note, options = {}) {
     <article class="embedded-note quote-card" data-quote-card>
       <div class="quote-card-topline">
         <span>Page ${escapeHtml(page)} &middot; ${formatDate(note.createdAt)}</span>
+        <b class="study-status status-${escapeHtml(status)}">${escapeHtml(status)}</b>
         ${deleteButton}
       </div>
       <p>${escapeHtml(note.quote || "")}</p>
@@ -1070,6 +1362,325 @@ function renderRecentQuotes(books) {
       </article>
     </a>
   `).join("");
+}
+
+function getBookActivity(book) {
+  const activity = Array.isArray(book.readingActivity) ? book.readingActivity : [];
+  const normalized = activity
+    .map(normalizeReadingActivityEntry)
+    .filter((entry) => entry.date);
+  const activityDates = new Set(normalized.map((entry) => entry.date));
+
+  getReadingDates(book).forEach((date) => {
+    if (!activityDates.has(date)) {
+      normalized.push({ date, secondsRead: 0, pagesRead: 0, quotesSaved: 0 });
+    }
+  });
+
+  return normalized.sort((first, second) => first.date.localeCompare(second.date));
+}
+
+function getDailyStudyRows(books, days = 7) {
+  const today = todayKey();
+  const start = addDays(today, -(days - 1));
+  const rows = new Map();
+  for (let index = 0; index < days; index += 1) {
+    const date = addDays(start, index);
+    rows.set(date, { date, secondsRead: 0, pagesRead: 0, quotesSaved: 0, books: new Set() });
+  }
+
+  books.forEach((book) => {
+    getBookActivity(book).forEach((entry) => {
+      if (!rows.has(entry.date)) return;
+      const row = rows.get(entry.date);
+      row.secondsRead += entry.secondsRead;
+      row.pagesRead += entry.pagesRead;
+      row.quotesSaved += entry.quotesSaved;
+      if (entry.secondsRead || entry.pagesRead || entry.quotesSaved) row.books.add(book.title);
+    });
+  });
+
+  return Array.from(rows.values()).map((row) => ({
+    ...row,
+    books: Array.from(row.books),
+  }));
+}
+
+function getBookActivityTotals(book) {
+  return getBookActivity(book).reduce(
+    (total, entry) => ({
+      secondsRead: total.secondsRead + entry.secondsRead,
+      pagesRead: total.pagesRead + entry.pagesRead,
+      quotesSaved: total.quotesSaved + entry.quotesSaved,
+    }),
+    { secondsRead: 0, pagesRead: 0, quotesSaved: 0 }
+  );
+}
+
+function formatReadingTime(seconds) {
+  const totalMinutes = Math.floor(Number(seconds || 0) / 60);
+  if (totalMinutes < 1) return seconds ? "<1 min" : "0 min";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (!hours) return `${minutes} min`;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function formatShortDate(dateKey) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateKey;
+  return new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric" }).format(date);
+}
+
+function getTodayStudyStats(books) {
+  const today = todayKey();
+  return getDailyStudyRows(books, 1).find((row) => row.date === today) || {
+    date: today,
+    secondsRead: 0,
+    pagesRead: 0,
+    quotesSaved: 0,
+    books: [],
+  };
+}
+
+function getFinishGoalPlan(book, finishGoals) {
+  const finishDate = finishGoals[String(book.id)] || "";
+  const remainingPages = Math.max(Number(book.totalPages || 0) - Number(book.currentPage || 1), 0);
+  if (!finishDate) {
+    return { finishDate: "", remainingPages, daysLeft: null, pagesPerDay: null, message: "Set a finish date to calculate pace." };
+  }
+
+  const today = new Date(`${todayKey()}T00:00:00`);
+  const deadline = new Date(`${finishDate}T00:00:00`);
+  const daysLeft = Math.max(Math.ceil((deadline - today) / 86400000) + 1, 1);
+  const pagesPerDay = remainingPages ? Math.ceil(remainingPages / daysLeft) : 0;
+  const message = remainingPages
+    ? `${pagesPerDay} pages/day to finish by ${formatShortDate(finishDate)}`
+    : "Finished already.";
+  return { finishDate, remainingPages, daysLeft, pagesPerDay, message };
+}
+
+function createActivityBar(row, maxPages, dailyGoal) {
+  const pageWidth = Math.min((row.pagesRead / Math.max(maxPages, dailyGoal, 1)) * 100, 100);
+  const quoteLabel = row.quotesSaved ? ` &middot; ${pluralize(row.quotesSaved, "quote")}` : "";
+  return `
+    <article class="activity-row">
+      <div>
+        <strong>${escapeHtml(formatShortDate(row.date))}</strong>
+        <span>${escapeHtml(formatReadingTime(row.secondsRead))}${quoteLabel}</span>
+      </div>
+      <div class="activity-meter" aria-hidden="true"><span style="width: ${pageWidth}%"></span></div>
+      <b>${row.pagesRead}</b>
+    </article>
+  `;
+}
+
+function createBookGoalRow(book, finishGoals) {
+  const totals = getBookActivityTotals(book);
+  const plan = getFinishGoalPlan(book, finishGoals);
+  return `
+    <article class="book-goal-row">
+      ${createCoverMarkup(book)}
+      <div>
+        <h3>${escapeHtml(book.title)}</h3>
+        <p>Page ${escapeHtml(book.currentPage || 1)} of ${escapeHtml(book.totalPages || 1)} &middot; ${escapeHtml(plan.message)}</p>
+        <span>${escapeHtml(formatReadingTime(totals.secondsRead))} tracked &middot; ${escapeHtml(pluralize(totals.pagesRead, "page"))} &middot; ${escapeHtml(pluralize(totals.quotesSaved || captureCount(book, "notes"), "quote"))}</span>
+      </div>
+      <form class="goal-date-form" data-finish-goal-form data-book-id="${escapeHtml(book.id)}">
+        <input type="date" name="finishDate" value="${escapeHtml(plan.finishDate)}" min="${escapeHtml(todayKey())}" aria-label="Finish date for ${escapeHtml(book.title)}">
+        <button class="ghost-action" type="submit">Set</button>
+      </form>
+    </article>
+  `;
+}
+
+function getStudyExportRows(quotes, title) {
+  const lines = [`# ${title}`, ""];
+  quotes.forEach((quote) => {
+    const tags = normalizeTags(quote.tags || []);
+    lines.push(`## ${quote.bookTitle} - Page ${getNotePage(quote.page)}`);
+    lines.push("");
+    lines.push(`> ${normalizeCaptureText(quote.quote || "")}`);
+    if (quote.note) {
+      lines.push("");
+      lines.push(`Note: ${normalizeCaptureText(quote.note)}`);
+    }
+    if (tags.length) {
+      lines.push("");
+      lines.push(`Tags: ${tags.map((tag) => `#${tag}`).join(" ")}`);
+    }
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function downloadTextFile(fileName, text, type = "text/markdown") {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportStudyQuotesPdf(quotes, title, fileName) {
+  if (!quotes.length) {
+    showStatus("No study notes to export.");
+    return;
+  }
+
+  const JsPdf = await loadJsPdf();
+  const doc = new JsPdf({ unit: "pt", format: "letter" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const state = { margin: 54, y: 54 };
+  const textWidth = pageWidth - state.margin * 2;
+
+  addPdfLines(doc, doc.splitTextToSize(title, textWidth), state, { fontSize: 18, lineHeight: 22, fontStyle: "bold" });
+  state.y += 10;
+
+  quotes.forEach((quote, index) => {
+    const tags = normalizeTags(quote.tags || []);
+    addPdfLines(doc, [`${quote.bookTitle} - Page ${getNotePage(quote.page)}`], state, { fontSize: 10, lineHeight: 15, fontStyle: "bold" });
+    addPdfLines(doc, doc.splitTextToSize(normalizeCaptureText(quote.quote || ""), textWidth), state, { fontSize: 11, lineHeight: 16 });
+    if (quote.note) {
+      addPdfLines(doc, doc.splitTextToSize(`Note: ${normalizeCaptureText(quote.note)}`, textWidth), state, { fontSize: 10, lineHeight: 15 });
+    }
+    if (tags.length) {
+      addPdfLines(doc, doc.splitTextToSize(`Tags: ${tags.map((tag) => `#${tag}`).join(" ")}`, textWidth), state, { fontSize: 10, lineHeight: 15 });
+    }
+    if (index < quotes.length - 1) state.y += 14;
+  });
+
+  doc.save(fileName);
+}
+
+function createStudyReviewCard(quote) {
+  const tags = normalizeTags(quote.tags || []);
+  return `
+    <article class="study-review-card">
+      <div class="quote-card-topline">
+        <span>${escapeHtml(quote.bookTitle)} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
+        <b class="study-status status-${escapeHtml(getQuoteStatus(quote))}">${escapeHtml(getQuoteStatus(quote))}</b>
+      </div>
+      <p>${escapeHtml(quote.quote || "")}</p>
+      ${quote.note ? `<small>${escapeHtml(quote.note)}</small>` : ""}
+      ${tags.length ? `<div class="tag-list">${tags.map((tag) => `<b>#${escapeHtml(tag)}</b>`).join("")}</div>` : ""}
+      <div class="study-review-actions">
+        <button class="ghost-action" type="button" data-review-status="new" data-review-book="${escapeHtml(quote.bookId)}" data-review-quote="${escapeHtml(quote.id)}">Again</button>
+        <button class="ghost-action" type="button" data-review-status="learning" data-review-book="${escapeHtml(quote.bookId)}" data-review-quote="${escapeHtml(quote.id)}">Good</button>
+        <button class="primary-action" type="button" data-review-status="mastered" data-review-book="${escapeHtml(quote.bookId)}" data-review-quote="${escapeHtml(quote.id)}">Mastered</button>
+        <a class="ghost-action link-action" href="reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(getNotePage(quote.page))}&mode=quotes">Open page</a>
+      </div>
+    </article>
+  `;
+}
+
+function createThemeCard(group, selectedTheme) {
+  const active = selectedTheme === group.tag.toLowerCase();
+  return `
+    <button class="theme-chip ${active ? "active" : ""}" type="button" data-study-theme="${escapeHtml(group.tag.toLowerCase())}">
+      <span>#${escapeHtml(group.tag)}</span>
+      <strong>${group.quotes.length}</strong>
+    </button>
+  `;
+}
+
+function createStudyQuoteItem(quote) {
+  const tags = normalizeTags(quote.tags || []);
+  return `
+    <article class="study-quote-item">
+      <div class="quote-card-topline">
+        <span>${escapeHtml(quote.bookTitle)} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
+        <b class="study-status status-${escapeHtml(getQuoteStatus(quote))}">${escapeHtml(getQuoteStatus(quote))}</b>
+      </div>
+      <p>${escapeHtml(quote.quote || "")}</p>
+      ${quote.note ? `<small>${escapeHtml(quote.note)}</small>` : ""}
+      ${tags.length ? `<div class="tag-list">${tags.map((tag) => `<b>#${escapeHtml(tag)}</b>`).join("")}</div>` : ""}
+    </article>
+  `;
+}
+
+async function renderStudy(loadedBooks) {
+  const stats = document.querySelector("[data-study-stats]");
+  const goalSlot = document.querySelector("[data-study-goal]");
+  const activitySlot = document.querySelector("[data-study-activity]");
+  const booksSlot = document.querySelector("[data-study-book-goals]");
+  if (!stats || !goalSlot || !activitySlot || !booksSlot) return;
+
+  const books = loadedBooks || (await getSavedBooks());
+  const dailyGoal = getDailyPageGoal();
+  const finishGoals = getFinishGoals();
+  const today = getTodayStudyStats(books);
+  const weekRows = getDailyStudyRows(books, 7);
+  const weekTotals = weekRows.reduce(
+    (total, row) => ({
+      secondsRead: total.secondsRead + row.secondsRead,
+      pagesRead: total.pagesRead + row.pagesRead,
+      quotesSaved: total.quotesSaved + row.quotesSaved,
+    }),
+    { secondsRead: 0, pagesRead: 0, quotesSaved: 0 }
+  );
+  const remainingToday = Math.max(dailyGoal - today.pagesRead, 0);
+  const goalPercent = Math.min(Math.round((today.pagesRead / Math.max(dailyGoal, 1)) * 100), 100);
+  const maxPages = Math.max(...weekRows.map((row) => row.pagesRead), dailyGoal, 1);
+
+  stats.innerHTML = `
+    <article class="stat-card"><span>Reading today</span><strong>${formatReadingTime(today.secondsRead)}</strong><p>Active reader time</p></article>
+    <article class="stat-card accent-gold"><span>Pages today</span><strong>${today.pagesRead}</strong><p>${remainingToday ? `${remainingToday} left for goal` : "Goal reached"}</p></article>
+    <article class="stat-card accent-green"><span>Quotes today</span><strong>${today.quotesSaved}</strong><p>Captured while reading</p></article>
+  `;
+
+  goalSlot.innerHTML = `
+    <div class="section-header compact">
+      <div>
+        <p class="eyebrow">Daily goal</p>
+        <h2>${remainingToday ? `Read ${remainingToday} more pages today` : "Daily page goal complete"}</h2>
+      </div>
+      <form class="goal-form" data-daily-goal-form>
+        <label>
+          <span>Pages/day</span>
+          <input type="number" name="dailyGoal" min="1" max="999" value="${dailyGoal}">
+        </label>
+        <button class="primary-action" type="submit">Save</button>
+      </form>
+    </div>
+    <div class="goal-progress">
+      <div class="goal-progress-topline">
+        <strong>${today.pagesRead} / ${dailyGoal} pages</strong>
+        <span>${goalPercent}%</span>
+      </div>
+      <div class="activity-meter large" aria-hidden="true"><span style="width: ${goalPercent}%"></span></div>
+    </div>
+  `;
+
+  activitySlot.innerHTML = `
+    <div class="section-header compact">
+      <div>
+        <p class="eyebrow">Last 7 days</p>
+        <h2>Reading activity</h2>
+      </div>
+      <div class="activity-summary">
+        <b>${weekTotals.pagesRead}</b>
+        <span>pages</span>
+        <b>${formatReadingTime(weekTotals.secondsRead)}</b>
+        <span>tracked</span>
+      </div>
+    </div>
+    <div class="activity-list">${weekRows.map((row) => createActivityBar(row, maxPages, dailyGoal)).join("")}</div>
+  `;
+
+  if (!books.length) {
+    renderEmptyState(booksSlot, "Upload a PDF to start tracking reading time, pages, quotes, and goals.", "No books yet");
+    fitSidebarText();
+    return;
+  }
+
+  booksSlot.innerHTML = books.map((book) => createBookGoalRow(book, finishGoals)).join("");
+
+  fitSidebarText();
 }
 
 function safeFileName(value) {
@@ -1306,6 +1917,7 @@ async function refreshCurrentPage() {
   await renderShelf(books);
   await renderNotes(books);
   await renderQuotesPage();
+  await renderStudy(books);
 
   if (document.body.dataset.page === "reader") {
     const params = new URLSearchParams(window.location.search);
@@ -1392,6 +2004,9 @@ async function renderReader() {
   let lastPinchDistance = null;
   let currentSelectedQuote = "";
   let renderedPageSize = { width: 0, height: 0 };
+  let lastReadingTick = document.visibilityState === "visible" ? Date.now() : null;
+  let pendingReadingSeconds = 0;
+  let readingFlushPromise = Promise.resolve();
 
   title.textContent = book.title;
   sidebarTitle.textContent = book.title;
@@ -1404,6 +2019,34 @@ async function renderReader() {
     nextParams.set("page", String(currentPage));
     nextParams.set("mode", readerMode);
     window.history.replaceState({}, "", `${window.location.pathname}?${nextParams.toString()}`);
+  }
+
+  function collectReadingSeconds() {
+    const now = Date.now();
+    if (document.visibilityState !== "visible") {
+      lastReadingTick = null;
+      return;
+    }
+    if (!lastReadingTick) {
+      lastReadingTick = now;
+      return;
+    }
+    const elapsedSeconds = Math.floor((now - lastReadingTick) / 1000);
+    lastReadingTick = now;
+    if (elapsedSeconds > 0) {
+      pendingReadingSeconds += Math.min(elapsedSeconds, 60);
+    }
+  }
+
+  async function flushReadingSeconds() {
+    collectReadingSeconds();
+    if (!pendingReadingSeconds) return;
+    const secondsRead = pendingReadingSeconds;
+    pendingReadingSeconds = 0;
+    readingFlushPromise = readingFlushPromise
+      .catch(() => null)
+      .then(() => recordReadingActivity(book.id, { date: todayKey(), secondsRead }));
+    await readingFlushPromise;
   }
 
   function renderPageQuotes() {
@@ -1776,6 +2419,23 @@ async function renderReader() {
     window.readerResizeTimer = window.setTimeout(() => drawPage(currentPage), 180);
   });
 
+  const readingTimer = window.setInterval(() => {
+    flushReadingSeconds().catch((error) => console.warn("Reading time could not be saved", error));
+  }, 30000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushReadingSeconds().catch((error) => console.warn("Reading time could not be saved", error));
+      return;
+    }
+    lastReadingTick = Date.now();
+  });
+
+  window.addEventListener("pagehide", () => {
+    window.clearInterval(readingTimer);
+    flushReadingSeconds().catch((error) => console.warn("Reading time could not be saved", error));
+  });
+
   setReaderMode(readerMode);
   await drawPage(currentPage);
 }
@@ -1786,6 +2446,7 @@ async function init() {
   bindInstallPrompt();
   bindRenameControls();
   bindNotesTools();
+  bindStudyTools();
   bindShelfFilters();
   const books = await getSavedBooks();
   try {
@@ -1793,6 +2454,7 @@ async function init() {
     await renderShelf(books);
     await renderNotes(books);
     await renderQuotesPage();
+    await renderStudy(books);
     await renderReader();
   } catch (error) {
     console.error(error);

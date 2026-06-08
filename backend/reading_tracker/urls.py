@@ -25,7 +25,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("books.urls")),
     re_path(r"^media/(?P<path>.*)$", serve_media),
-    re_path(r"^frontend/(?P<path>(?:app\.js|styles\.css|service-worker\.js|manifest\.webmanifest|index\.html|shelf\.html|notes\.html|quotes\.html|reader\.html|assets/.*))$", serve_legacy_frontend),
+    re_path(r"^frontend/(?P<path>(?:app\.js|styles\.css|service-worker\.js|manifest\.webmanifest|index\.html|shelf\.html|notes\.html|quotes\.html|study\.html|reader\.html|assets/.*))$", serve_legacy_frontend),
     path("", serve_frontend),
-    re_path(r"^(?P<path>(?:app\.js|styles\.css|service-worker\.js|manifest\.webmanifest|index\.html|shelf\.html|notes\.html|quotes\.html|reader\.html|assets/.*))$", serve_frontend),
+    re_path(r"^(?P<path>(?:app\.js|styles\.css|service-worker\.js|manifest\.webmanifest|index\.html|shelf\.html|notes\.html|quotes\.html|study\.html|reader\.html|assets/.*))$", serve_frontend),
 ]
