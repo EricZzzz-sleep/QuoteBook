@@ -36,13 +36,38 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Notes workspace</p>
-          <h1>Collect the ideas worth returning to.</h1>
+          <h1>Search the keywords inside your quotes.</h1>
         </div>
         <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
       </header>
 
       <section class="notes-layout">
-        <div class="notes-column" data-real-notes></div>
+        <section class="keyword-workspace" aria-label="Cross-book quote search">
+          <div class="section-header compact">
+            <div>
+              <p class="eyebrow">Keyword notebook</p>
+              <h2>Find quotes across every PDF</h2>
+            </div>
+            <button class="ghost-action" type="button" data-export-keyword-brief hidden>Export Keyword Brief</button>
+          </div>
+          <label class="field-label quote-search-label">
+            <span>Search quotes</span>
+            <input class="field-input" type="search" placeholder="Search quote, side note, book, page, or keyword" data-notes-search>
+          </label>
+          <div class="keyword-filter-strip" data-top-keywords></div>
+          <div class="keyword-brief" data-keyword-brief></div>
+          <div class="global-quote-list" data-global-quotes></div>
+        </section>
+
+        <section class="notes-books-section" aria-label="Books with saved quotes">
+          <div class="section-header compact">
+            <div>
+              <p class="eyebrow">Books</p>
+              <h2>Open one book's quotes</h2>
+            </div>
+          </div>
+          <div class="notes-column" data-real-notes></div>
+        </section>
       </section>
     </main>
   </div>

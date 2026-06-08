@@ -7,7 +7,6 @@ const PDF_JS_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.mi
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
 const JSPDF_URL = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
-const STUDY_STATUSES = new Set(["new", "learning", "mastered"]);
 const STUDY_DAILY_GOAL_KEY = "quotebook-study-daily-pages-goal";
 const STUDY_FINISH_GOALS_KEY = "quotebook-study-finish-goals";
 
@@ -343,7 +342,6 @@ async function addBookCapture(id, type, data) {
     createdAt: new Date().toISOString(),
     ...data,
   };
-  if (type === "notes") normalizeStudyCard(capture);
 
   if (!Array.isArray(book[type])) book[type] = [];
   book[type].unshift(capture);
@@ -353,36 +351,6 @@ async function addBookCapture(id, type, data) {
   book.updatedAt = new Date().toISOString();
   await saveBook(book);
   return capture;
-}
-
-async function updateBookQuoteReview(bookId, quoteId, status) {
-  const nextStatus = STUDY_STATUSES.has(status) ? status : "learning";
-  try {
-    const response = await apiRequest(`/api/books/${encodeURIComponent(bookId)}/captures/${encodeURIComponent(quoteId)}/`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    return response.book || null;
-  } catch (error) {
-    console.warn("Backend unavailable, updating quote review locally", error);
-  }
-
-  const book = await getBook(bookId);
-  if (!book) return null;
-  const notes = Array.isArray(book.notes) ? book.notes : [];
-  const now = new Date().toISOString();
-  book.notes = notes.map((note) => {
-    if (String(note.id) !== String(quoteId)) return note;
-    const updated = normalizeStudyCard({ ...note });
-    updated.status = nextStatus;
-    updated.reviewCount = Number(updated.reviewCount || 0) + 1;
-    updated.lastReviewedAt = now;
-    updated.masteredAt = nextStatus === "mastered" ? now : "";
-    return updated;
-  });
-  book.updatedAt = now;
-  await saveBook(book);
-  return book;
 }
 
 async function deleteBookQuote(bookId, quoteId) {
@@ -560,53 +528,180 @@ function normalizeTags(value) {
     .slice(0, 8);
 }
 
-function normalizeStudyCard(note) {
-  const reviewCount = Number(note.reviewCount || 0);
-  note.status = STUDY_STATUSES.has(note.status) ? note.status : "new";
-  note.reviewCount = Number.isFinite(reviewCount) && reviewCount > 0 ? Math.floor(reviewCount) : 0;
-  note.lastReviewedAt = note.lastReviewedAt || "";
-  note.masteredAt = note.status === "mastered" ? note.masteredAt || note.lastReviewedAt || "" : "";
-  return note;
-}
-
-function getQuoteStatus(note) {
-  return normalizeStudyCard({ ...note }).status;
-}
-
-function getStudyQuotes(books) {
-  return books.flatMap((book) => {
-    const notes = Array.isArray(book.notes) ? book.notes : [];
-    return notes.map((note) => normalizeStudyCard({
-      ...note,
-      bookId: book.id,
-      bookTitle: book.title,
-      bookAuthor: book.author || "",
-    }));
-  });
-}
-
-function sortStudyQueue(quotes) {
-  const statusWeight = { new: 0, learning: 1, mastered: 2 };
-  return [...quotes].sort((first, second) => {
-    const firstStatus = statusWeight[getQuoteStatus(first)] ?? 0;
-    const secondStatus = statusWeight[getQuoteStatus(second)] ?? 0;
-    if (firstStatus !== secondStatus) return firstStatus - secondStatus;
-    return new Date(first.lastReviewedAt || first.createdAt || 0) - new Date(second.lastReviewedAt || second.createdAt || 0);
-  });
-}
-
-function getThemeGroups(quotes) {
+function getKeywordStats(quotes) {
   const groups = new Map();
   quotes.forEach((quote) => {
-    normalizeTags(quote.tags || []).forEach((tag) => {
+    new Set(normalizeTags(quote.tags || [])).forEach((tag) => {
       const key = tag.toLowerCase();
       if (!groups.has(key)) {
-        groups.set(key, { tag, quotes: [] });
+        groups.set(key, { tag, count: 0 });
       }
-      groups.get(key).quotes.push(quote);
+      groups.get(key).count += 1;
     });
   });
-  return Array.from(groups.values()).sort((first, second) => second.quotes.length - first.quotes.length || first.tag.localeCompare(second.tag));
+  return Array.from(groups.values()).sort((first, second) => second.count - first.count || first.tag.localeCompare(second.tag));
+}
+
+function getRecentKeywords(books, limit = 8) {
+  const seen = new Set();
+  const keywords = [];
+
+  getAllQuotes(books).forEach((quote) => {
+    normalizeTags(quote.tags || []).forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      keywords.push(tag);
+    });
+  });
+
+  return keywords.slice(0, limit);
+}
+
+function quoteHasKeyword(quote, keyword) {
+  const selected = String(keyword || "").toLowerCase();
+  if (!selected) return true;
+  return normalizeTags(quote.tags || []).some((tag) => tag.toLowerCase() === selected);
+}
+
+function quoteMatchesQuery(quote, query) {
+  const cleanQuery = normalizeCaptureText(query || "").replace(/^#/, "").toLowerCase();
+  if (!cleanQuery) return true;
+  const page = String(getNotePage(quote.page));
+  const searchableText = [
+    quote.quote,
+    quote.note,
+    quote.bookTitle,
+    quote.bookAuthor,
+    page,
+    `page ${page}`,
+    normalizeTags(quote.tags || []).join(" "),
+  ].map((value) => normalizeCaptureText(String(value || "")).toLowerCase()).join(" ");
+
+  return searchableText.includes(cleanQuery);
+}
+
+function filterQuotes(quotes, query = "", keyword = "") {
+  return quotes.filter((quote) => quoteHasKeyword(quote, keyword) && quoteMatchesQuery(quote, query));
+}
+
+function getRelatedKeywordStats(quotes, selectedKeyword) {
+  const selected = String(selectedKeyword || "").toLowerCase();
+  return getKeywordStats(quotes.map((quote) => ({
+    ...quote,
+    tags: normalizeTags(quote.tags || []).filter((tag) => tag.toLowerCase() !== selected),
+  })));
+}
+
+function getNotesKeywordFilter() {
+  const keyword = new URLSearchParams(window.location.search).get("keyword") || "";
+  return normalizeTags(keyword)[0] || "";
+}
+
+function setNotesKeywordFilter(keyword) {
+  const params = new URLSearchParams(window.location.search);
+  const normalized = normalizeTags(keyword)[0] || "";
+  if (normalized) params.set("keyword", normalized);
+  else params.delete("keyword");
+  const nextQuery = params.toString();
+  window.history.replaceState({}, "", `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`);
+  return normalized;
+}
+
+function createKeywordChip(tag, count, options = {}) {
+  const active = options.active ? " active" : "";
+  const small = options.small ? " small" : "";
+  const dataset = options.reader
+    ? `data-reader-keyword="${escapeHtml(tag)}"`
+    : `data-notes-keyword="${escapeHtml(tag)}"`;
+  const countMarkup = Number.isFinite(count) ? `<strong>${escapeHtml(String(count))}</strong>` : "";
+  return `
+    <button class="keyword-chip${active}${small}" type="button" ${dataset}>
+      <span>#${escapeHtml(tag)}</span>
+      ${countMarkup}
+    </button>
+  `;
+}
+
+function createKeywordTagList(tags, options = {}) {
+  const normalized = normalizeTags(tags || []);
+  if (!normalized.length) return "";
+  const items = normalized.map((tag) => {
+    if (options.buttons) return createKeywordChip(tag, null, { small: true });
+    if (options.links) {
+      return `<a class="keyword-chip small" href="notes.html?keyword=${encodeURIComponent(tag)}">#${escapeHtml(tag)}</a>`;
+    }
+    return `<b>#${escapeHtml(tag)}</b>`;
+  });
+  return `<div class="tag-list">${items.join("")}</div>`;
+}
+
+function setKeywordInputTags(input, tags) {
+  input.value = normalizeTags(tags).join(", ");
+}
+
+function addKeywordToInput(input, keyword) {
+  const tags = normalizeTags(input.value);
+  const next = normalizeTags([...tags, keyword]);
+  const unique = [];
+  const seen = new Set();
+  next.forEach((tag) => {
+    const key = tag.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(tag);
+  });
+  setKeywordInputTags(input, unique);
+}
+
+function removeKeywordFromInput(input, keyword) {
+  const selected = String(keyword || "").toLowerCase();
+  setKeywordInputTags(input, normalizeTags(input.value).filter((tag) => tag.toLowerCase() !== selected));
+}
+
+function renderKeywordInputTools(input, chipSlot, suggestionSlot, suggestions = []) {
+  if (!input || !chipSlot || !suggestionSlot) return;
+  const tags = normalizeTags(input.value);
+  const selected = new Set(tags.map((tag) => tag.toLowerCase()));
+  chipSlot.innerHTML = tags.length
+    ? tags.map((tag) => `
+        <button class="keyword-pill" type="button" data-remove-keyword="${escapeHtml(tag)}">
+          <span>#${escapeHtml(tag)}</span>
+          <b aria-hidden="true">x</b>
+        </button>
+      `).join("")
+    : "<span>Type keywords, then press comma or Enter.</span>";
+
+  const visibleSuggestions = suggestions.filter((tag) => !selected.has(tag.toLowerCase())).slice(0, 8);
+  suggestionSlot.innerHTML = visibleSuggestions.length
+    ? `<span>Recent</span>${visibleSuggestions.map((tag) => createKeywordChip(tag, null, { reader: true, small: true })).join("")}`
+    : "";
+}
+
+function getKeywordBriefMarkdown(keyword, quotes, relatedKeywords) {
+  const lines = [`# #${keyword}`, ""];
+  if (relatedKeywords.length) {
+    lines.push(`Related keywords: ${relatedKeywords.map((entry) => `#${entry.tag}`).join(", ")}`);
+    lines.push("");
+  }
+
+  quotes.forEach((quote) => {
+    const tags = normalizeTags(quote.tags || []);
+    lines.push(`## ${quote.bookTitle} - Page ${getNotePage(quote.page)}`);
+    lines.push("");
+    lines.push(`> ${normalizeCaptureText(quote.quote || "")}`);
+    if (quote.note) {
+      lines.push("");
+      lines.push(`Note: ${normalizeCaptureText(quote.note)}`);
+    }
+    if (tags.length) {
+      lines.push("");
+      lines.push(`Keywords: ${tags.map((tag) => `#${tag}`).join(" ")}`);
+    }
+    lines.push("");
+  });
+
+  return lines.join("\n");
 }
 
 function truncateEnd(value, maxLength = 50) {
@@ -1037,6 +1132,41 @@ function bindRenameControls() {
 
 function bindNotesTools() {
   document.addEventListener("click", async (event) => {
+    const keywordButton = event.target.closest("[data-notes-keyword]");
+    if (keywordButton) {
+      event.preventDefault();
+      setNotesKeywordFilter(keywordButton.dataset.notesKeyword);
+      await renderNotes();
+      return;
+    }
+
+    if (event.target.closest("[data-clear-keyword]")) {
+      event.preventDefault();
+      setNotesKeywordFilter("");
+      await renderNotes();
+      return;
+    }
+
+    const keywordExportButton = event.target.closest("[data-export-keyword-brief]");
+    if (keywordExportButton) {
+      event.preventDefault();
+      const keyword = keywordExportButton.dataset.exportKeyword;
+      if (!keyword) {
+        showStatus("Choose a keyword before exporting.", "error");
+        return;
+      }
+      const books = await getSavedBooks();
+      const quotes = filterQuotes(getAllQuotes(books), "", keyword);
+      if (!quotes.length) {
+        showStatus("No quotes match that keyword.", "error");
+        return;
+      }
+      const related = getRelatedKeywordStats(quotes, keyword).slice(0, 8);
+      downloadTextFile(`${safeFileName(`keyword-${keyword}`)}.md`, getKeywordBriefMarkdown(keyword, quotes, related));
+      showStatus("Keyword brief exported.");
+      return;
+    }
+
     const deleteButton = event.target.closest("[data-delete-quote]");
     if (deleteButton) {
       event.preventDefault();
@@ -1074,64 +1204,6 @@ function bindNotesTools() {
 }
 
 function bindStudyTools() {
-  document.addEventListener("click", async (event) => {
-    const reviewButton = event.target.closest("[data-review-status]");
-    if (reviewButton) {
-      event.preventDefault();
-      await updateBookQuoteReview(reviewButton.dataset.reviewBook, reviewButton.dataset.reviewQuote, reviewButton.dataset.reviewStatus);
-      showStatus("Study card updated.");
-      await renderStudy();
-      return;
-    }
-
-    const themeButton = event.target.closest("[data-study-theme]");
-    if (themeButton) {
-      event.preventDefault();
-      const params = new URLSearchParams(window.location.search);
-      params.set("theme", themeButton.dataset.studyTheme);
-      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
-      await renderStudy();
-      return;
-    }
-
-    const exportButton = event.target.closest("[data-export-study]");
-    if (!exportButton) return;
-    event.preventDefault();
-
-    const books = await getSavedBooks();
-    const quotes = getStudyQuotes(books);
-    const theme = exportButton.dataset.exportTheme;
-    const bookId = exportButton.dataset.exportBook;
-    const exportQuotes = theme
-      ? quotes.filter((quote) => normalizeTags(quote.tags || []).some((tag) => tag.toLowerCase() === theme.toLowerCase()))
-      : bookId
-        ? quotes.filter((quote) => String(quote.bookId) === String(bookId))
-        : quotes;
-    const book = bookId ? books.find((entry) => String(entry.id) === String(bookId)) : null;
-    const title = theme
-      ? `QuoteBook Study Theme: #${theme}`
-      : book
-        ? `QuoteBook Study Notes: ${book.title}`
-        : "QuoteBook Study Notes";
-    const fileName = safeFileName(theme
-      ? `study-${theme}`
-      : book
-        ? `study-${book.title}`
-        : "study-notes");
-
-    try {
-      if (exportButton.dataset.exportStudy === "pdf") {
-        await exportStudyQuotesPdf(exportQuotes, title, `${fileName}.pdf`);
-      } else {
-        downloadTextFile(`${fileName}.md`, getStudyExportRows(exportQuotes, title));
-      }
-      showStatus("Study notes exported.");
-    } catch (error) {
-      console.error(error);
-      showStatus("Study notes could not be exported.", "error");
-    }
-  });
-
   document.addEventListener("submit", async (event) => {
     const dailyGoalForm = event.target.closest("[data-daily-goal-form]");
     if (dailyGoalForm) {
@@ -1246,27 +1318,59 @@ function createQuoteCard(note, options = {}) {
   const noteText = normalizeCaptureText(note.note || "");
   const page = getNotePage(note.page);
   const tags = normalizeTags(note.tags || []);
-  const status = getQuoteStatus(note);
   const deleteButton = options.canDelete && note.id
     ? `<button class="quote-delete-button" type="button" data-delete-quote="${escapeHtml(note.id)}" data-delete-quote-book="${escapeHtml(options.bookId || "")}">Delete</button>`
     : "";
-  const card = `
+  const openButton = options.bookId && !options.canDelete
+    ? `<a class="ghost-action link-action quote-open-action" href="reader.html?id=${encodeURIComponent(options.bookId)}&page=${encodeURIComponent(page)}&mode=quotes">Open page</a>`
+    : "";
+  return `
     <article class="embedded-note quote-card" data-quote-card>
       <div class="quote-card-topline">
         <span>Page ${escapeHtml(page)} &middot; ${formatDate(note.createdAt)}</span>
-        <b class="study-status status-${escapeHtml(status)}">${escapeHtml(status)}</b>
         ${deleteButton}
+        ${openButton}
       </div>
       <p>${escapeHtml(note.quote || "")}</p>
       ${noteText ? `<small>${escapeHtml(noteText)}</small>` : ""}
-      ${tags.length ? `<div class="tag-list">${tags.map((tag) => `<b>#${escapeHtml(tag)}</b>`).join("")}</div>` : ""}
+      ${createKeywordTagList(tags, { links: Boolean(options.bookId && !options.canDelete) })}
     </article>
   `;
+}
 
-  if (!options.bookId || options.canDelete) return card;
+function createGlobalQuoteCard(quote) {
+  const noteText = normalizeCaptureText(quote.note || "");
+  const page = getNotePage(quote.page);
+  const tags = normalizeTags(quote.tags || []);
+  return `
+    <article class="global-quote-card">
+      <div class="quote-card-topline">
+        <span>${escapeHtml(quote.bookTitle || "Untitled book")} &middot; Page ${escapeHtml(page)}</span>
+        <a class="ghost-action link-action quote-open-action" href="reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(page)}&mode=quotes">Open page</a>
+      </div>
+      <p>${escapeHtml(quote.quote || "")}</p>
+      ${noteText ? `<small>${escapeHtml(noteText)}</small>` : ""}
+      ${createKeywordTagList(tags, { buttons: true })}
+    </article>
+  `;
+}
 
-  const href = `reader.html?id=${encodeURIComponent(options.bookId)}&page=${encodeURIComponent(page)}&mode=quotes`;
-  return `<a class="quote-card-link" href="${href}">${card}</a>`;
+function createKeywordBrief(keyword, quotes) {
+  if (!keyword) return "";
+  const related = getRelatedKeywordStats(quotes, keyword).slice(0, 8);
+  return `
+    <article class="keyword-brief-card">
+      <div>
+        <span class="note-type">Keyword brief</span>
+        <h3>#${escapeHtml(keyword)}</h3>
+        <p>${escapeHtml(pluralize(quotes.length, "quote"))} across ${escapeHtml(pluralize(new Set(quotes.map((quote) => quote.bookId)).size, "book"))}.</p>
+      </div>
+      <div class="related-keywords">
+        ${related.length ? related.map((entry) => createKeywordChip(entry.tag, entry.count, { small: true })).join("") : "<span>No related keywords yet.</span>"}
+      </div>
+      <button class="ghost-action" type="button" data-clear-keyword>Clear keyword</button>
+    </article>
+  `;
 }
 
 function getBookCaptureCounts(books) {
@@ -1337,7 +1441,12 @@ function renderDashboardStats(stats) {
 function getAllQuotes(books) {
   return books.flatMap((book) => {
     const notes = Array.isArray(book.notes) ? book.notes : [];
-    return notes.map((note) => ({ ...note, bookId: book.id, bookTitle: book.title }));
+    return notes.map((note) => ({
+      ...note,
+      bookId: book.id,
+      bookTitle: book.title,
+      bookAuthor: book.author || "",
+    }));
   }).sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0));
 }
 
@@ -1383,11 +1492,15 @@ function getBookActivity(book) {
 function getDailyStudyRows(books, days = 7) {
   const today = todayKey();
   const start = addDays(today, -(days - 1));
+  const dates = Array.from({ length: days }, (_, index) => addDays(start, index));
+  return getStudyRowsForDates(books, dates);
+}
+
+function getStudyRowsForDates(books, dates) {
   const rows = new Map();
-  for (let index = 0; index < days; index += 1) {
-    const date = addDays(start, index);
+  dates.forEach((date) => {
     rows.set(date, { date, secondsRead: 0, pagesRead: 0, quotesSaved: 0, books: new Set() });
-  }
+  });
 
   books.forEach((book) => {
     getBookActivity(book).forEach((entry) => {
@@ -1406,17 +1519,6 @@ function getDailyStudyRows(books, days = 7) {
   }));
 }
 
-function getBookActivityTotals(book) {
-  return getBookActivity(book).reduce(
-    (total, entry) => ({
-      secondsRead: total.secondsRead + entry.secondsRead,
-      pagesRead: total.pagesRead + entry.pagesRead,
-      quotesSaved: total.quotesSaved + entry.quotesSaved,
-    }),
-    { secondsRead: 0, pagesRead: 0, quotesSaved: 0 }
-  );
-}
-
 function formatReadingTime(seconds) {
   const totalMinutes = Math.floor(Number(seconds || 0) / 60);
   if (totalMinutes < 1) return seconds ? "<1 min" : "0 min";
@@ -1430,6 +1532,18 @@ function formatShortDate(dateKey) {
   const date = new Date(`${dateKey}T00:00:00`);
   if (Number.isNaN(date.getTime())) return dateKey;
   return new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric" }).format(date);
+}
+
+function formatWeekday(dateKey) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateKey;
+  return new Intl.DateTimeFormat("en", { weekday: "long" }).format(date);
+}
+
+function formatMonthDay(dateKey) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateKey;
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
 }
 
 function getTodayStudyStats(books) {
@@ -1460,31 +1574,74 @@ function getFinishGoalPlan(book, finishGoals) {
   return { finishDate, remainingPages, daysLeft, pagesPerDay, message };
 }
 
-function createActivityBar(row, maxPages, dailyGoal) {
-  const pageWidth = Math.min((row.pagesRead / Math.max(maxPages, dailyGoal, 1)) * 100, 100);
-  const quoteLabel = row.quotesSaved ? ` &middot; ${pluralize(row.quotesSaved, "quote")}` : "";
+function getNextStudyBook(books) {
+  return books
+    .filter((book) => Number(book.currentPage || 1) < Number(book.totalPages || 1))
+    .sort((first, second) => new Date(getBookLastReadAt(second) || 0) - new Date(getBookLastReadAt(first) || 0))[0]
+    || books[0]
+    || null;
+}
+
+function createNextBookCard(book, finishGoals) {
+  if (!book) {
+    return `
+      <article class="next-book-card empty">
+        <div>
+          <span class="note-type">Next book</span>
+          <h3>No book yet</h3>
+          <p>Upload a PDF to start your reading plan.</p>
+        </div>
+        <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
+      </article>
+    `;
+  }
+
+  const plan = getFinishGoalPlan(book, finishGoals);
+  const remainingPages = Math.max(Number(book.totalPages || 0) - Number(book.currentPage || 1), 0);
   return `
-    <article class="activity-row">
+    <article class="next-book-card">
+      ${createCoverMarkup(book)}
       <div>
-        <strong>${escapeHtml(formatShortDate(row.date))}</strong>
-        <span>${escapeHtml(formatReadingTime(row.secondsRead))}${quoteLabel}</span>
+        <span class="note-type">Next book</span>
+        <h3>${escapeHtml(book.title)}</h3>
+        <p>Page ${escapeHtml(book.currentPage || 1)} of ${escapeHtml(book.totalPages || 1)} &middot; ${escapeHtml(pluralize(remainingPages, "page"))} left</p>
+        <small>${escapeHtml(plan.finishDate ? plan.message : "Continue from your most recent unfinished PDF.")}</small>
       </div>
-      <div class="activity-meter" aria-hidden="true"><span style="width: ${pageWidth}%"></span></div>
-      <b>${row.pagesRead}</b>
+      <a class="primary-action link-action" href="reader.html?id=${encodeURIComponent(book.id)}">Continue reading</a>
+    </article>
+  `;
+}
+
+function createActivityBar(row, maxSeconds, dailyGoal) {
+  const timeHeight = Math.min((row.secondsRead / Math.max(maxSeconds, 1)) * 100, 100);
+  const reachedGoal = row.pagesRead >= dailyGoal && dailyGoal > 0;
+  const isToday = row.date === todayKey();
+  return `
+    <article class="activity-bar-row ${reachedGoal ? "goal-reached" : ""} ${isToday ? "today" : ""}">
+      <div class="activity-bar-label">
+        <strong>${escapeHtml(isToday ? "Today" : formatWeekday(row.date))}</strong>
+        <span>${escapeHtml(formatMonthDay(row.date))}</span>
+      </div>
+      <div class="activity-bar-content">
+        <div class="activity-bar-track" aria-label="${escapeHtml(`${formatShortDate(row.date)}: ${formatReadingTime(row.secondsRead)} reading time`)}">
+          <span class="activity-bar-fill" style="height: ${timeHeight}%"></span>
+          <b class="activity-bar-value">${escapeHtml(formatReadingTime(row.secondsRead))}</b>
+        </div>
+        ${reachedGoal ? "<strong class=\"activity-bar-goal\">Goal reached</strong>" : ""}
+      </div>
     </article>
   `;
 }
 
 function createBookGoalRow(book, finishGoals) {
-  const totals = getBookActivityTotals(book);
   const plan = getFinishGoalPlan(book, finishGoals);
   return `
     <article class="book-goal-row">
       ${createCoverMarkup(book)}
       <div>
         <h3>${escapeHtml(book.title)}</h3>
-        <p>Page ${escapeHtml(book.currentPage || 1)} of ${escapeHtml(book.totalPages || 1)} &middot; ${escapeHtml(plan.message)}</p>
-        <span>${escapeHtml(formatReadingTime(totals.secondsRead))} tracked &middot; ${escapeHtml(pluralize(totals.pagesRead, "page"))} &middot; ${escapeHtml(pluralize(totals.quotesSaved || captureCount(book, "notes"), "quote"))}</span>
+        <p>Page ${escapeHtml(book.currentPage || 1)} of ${escapeHtml(book.totalPages || 1)} &middot; ${escapeHtml(pluralize(plan.remainingPages, "page"))} left</p>
+        <span>${escapeHtml(plan.message)}</span>
       </div>
       <form class="goal-date-form" data-finish-goal-form data-book-id="${escapeHtml(book.id)}">
         <input type="date" name="finishDate" value="${escapeHtml(plan.finishDate)}" min="${escapeHtml(todayKey())}" aria-label="Finish date for ${escapeHtml(book.title)}">
@@ -1492,26 +1649,6 @@ function createBookGoalRow(book, finishGoals) {
       </form>
     </article>
   `;
-}
-
-function getStudyExportRows(quotes, title) {
-  const lines = [`# ${title}`, ""];
-  quotes.forEach((quote) => {
-    const tags = normalizeTags(quote.tags || []);
-    lines.push(`## ${quote.bookTitle} - Page ${getNotePage(quote.page)}`);
-    lines.push("");
-    lines.push(`> ${normalizeCaptureText(quote.quote || "")}`);
-    if (quote.note) {
-      lines.push("");
-      lines.push(`Note: ${normalizeCaptureText(quote.note)}`);
-    }
-    if (tags.length) {
-      lines.push("");
-      lines.push(`Tags: ${tags.map((tag) => `#${tag}`).join(" ")}`);
-    }
-    lines.push("");
-  });
-  return lines.join("\n");
 }
 
 function downloadTextFile(fileName, text, type = "text/markdown") {
@@ -1526,89 +1663,12 @@ function downloadTextFile(fileName, text, type = "text/markdown") {
   URL.revokeObjectURL(url);
 }
 
-async function exportStudyQuotesPdf(quotes, title, fileName) {
-  if (!quotes.length) {
-    showStatus("No study notes to export.");
-    return;
-  }
-
-  const JsPdf = await loadJsPdf();
-  const doc = new JsPdf({ unit: "pt", format: "letter" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const state = { margin: 54, y: 54 };
-  const textWidth = pageWidth - state.margin * 2;
-
-  addPdfLines(doc, doc.splitTextToSize(title, textWidth), state, { fontSize: 18, lineHeight: 22, fontStyle: "bold" });
-  state.y += 10;
-
-  quotes.forEach((quote, index) => {
-    const tags = normalizeTags(quote.tags || []);
-    addPdfLines(doc, [`${quote.bookTitle} - Page ${getNotePage(quote.page)}`], state, { fontSize: 10, lineHeight: 15, fontStyle: "bold" });
-    addPdfLines(doc, doc.splitTextToSize(normalizeCaptureText(quote.quote || ""), textWidth), state, { fontSize: 11, lineHeight: 16 });
-    if (quote.note) {
-      addPdfLines(doc, doc.splitTextToSize(`Note: ${normalizeCaptureText(quote.note)}`, textWidth), state, { fontSize: 10, lineHeight: 15 });
-    }
-    if (tags.length) {
-      addPdfLines(doc, doc.splitTextToSize(`Tags: ${tags.map((tag) => `#${tag}`).join(" ")}`, textWidth), state, { fontSize: 10, lineHeight: 15 });
-    }
-    if (index < quotes.length - 1) state.y += 14;
-  });
-
-  doc.save(fileName);
-}
-
-function createStudyReviewCard(quote) {
-  const tags = normalizeTags(quote.tags || []);
-  return `
-    <article class="study-review-card">
-      <div class="quote-card-topline">
-        <span>${escapeHtml(quote.bookTitle)} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
-        <b class="study-status status-${escapeHtml(getQuoteStatus(quote))}">${escapeHtml(getQuoteStatus(quote))}</b>
-      </div>
-      <p>${escapeHtml(quote.quote || "")}</p>
-      ${quote.note ? `<small>${escapeHtml(quote.note)}</small>` : ""}
-      ${tags.length ? `<div class="tag-list">${tags.map((tag) => `<b>#${escapeHtml(tag)}</b>`).join("")}</div>` : ""}
-      <div class="study-review-actions">
-        <button class="ghost-action" type="button" data-review-status="new" data-review-book="${escapeHtml(quote.bookId)}" data-review-quote="${escapeHtml(quote.id)}">Again</button>
-        <button class="ghost-action" type="button" data-review-status="learning" data-review-book="${escapeHtml(quote.bookId)}" data-review-quote="${escapeHtml(quote.id)}">Good</button>
-        <button class="primary-action" type="button" data-review-status="mastered" data-review-book="${escapeHtml(quote.bookId)}" data-review-quote="${escapeHtml(quote.id)}">Mastered</button>
-        <a class="ghost-action link-action" href="reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(getNotePage(quote.page))}&mode=quotes">Open page</a>
-      </div>
-    </article>
-  `;
-}
-
-function createThemeCard(group, selectedTheme) {
-  const active = selectedTheme === group.tag.toLowerCase();
-  return `
-    <button class="theme-chip ${active ? "active" : ""}" type="button" data-study-theme="${escapeHtml(group.tag.toLowerCase())}">
-      <span>#${escapeHtml(group.tag)}</span>
-      <strong>${group.quotes.length}</strong>
-    </button>
-  `;
-}
-
-function createStudyQuoteItem(quote) {
-  const tags = normalizeTags(quote.tags || []);
-  return `
-    <article class="study-quote-item">
-      <div class="quote-card-topline">
-        <span>${escapeHtml(quote.bookTitle)} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
-        <b class="study-status status-${escapeHtml(getQuoteStatus(quote))}">${escapeHtml(getQuoteStatus(quote))}</b>
-      </div>
-      <p>${escapeHtml(quote.quote || "")}</p>
-      ${quote.note ? `<small>${escapeHtml(quote.note)}</small>` : ""}
-      ${tags.length ? `<div class="tag-list">${tags.map((tag) => `<b>#${escapeHtml(tag)}</b>`).join("")}</div>` : ""}
-    </article>
-  `;
-}
-
 async function renderStudy(loadedBooks) {
-  const stats = document.querySelector("[data-study-stats]");
   const goalSlot = document.querySelector("[data-study-goal]");
   const activitySlot = document.querySelector("[data-study-activity]");
+  const bookPanel = document.querySelector("[data-study-book-panel]");
   const booksSlot = document.querySelector("[data-study-book-goals]");
-  if (!stats || !goalSlot || !activitySlot || !booksSlot) return;
+  if (!goalSlot || !activitySlot || !bookPanel || !booksSlot) return;
 
   const books = loadedBooks || (await getSavedBooks());
   const dailyGoal = getDailyPageGoal();
@@ -1625,19 +1685,14 @@ async function renderStudy(loadedBooks) {
   );
   const remainingToday = Math.max(dailyGoal - today.pagesRead, 0);
   const goalPercent = Math.min(Math.round((today.pagesRead / Math.max(dailyGoal, 1)) * 100), 100);
-  const maxPages = Math.max(...weekRows.map((row) => row.pagesRead), dailyGoal, 1);
-
-  stats.innerHTML = `
-    <article class="stat-card"><span>Reading today</span><strong>${formatReadingTime(today.secondsRead)}</strong><p>Active reader time</p></article>
-    <article class="stat-card accent-gold"><span>Pages today</span><strong>${today.pagesRead}</strong><p>${remainingToday ? `${remainingToday} left for goal` : "Goal reached"}</p></article>
-    <article class="stat-card accent-green"><span>Quotes today</span><strong>${today.quotesSaved}</strong><p>Captured while reading</p></article>
-  `;
+  const maxSeconds = Math.max(...weekRows.map((row) => row.secondsRead), 1);
+  const nextBook = getNextStudyBook(books);
 
   goalSlot.innerHTML = `
     <div class="section-header compact">
       <div>
-        <p class="eyebrow">Daily goal</p>
-        <h2>${remainingToday ? `Read ${remainingToday} more pages today` : "Daily page goal complete"}</h2>
+        <p class="eyebrow">Today</p>
+        <h2>${remainingToday ? `Read ${remainingToday} more pages today` : "Goal complete today"}</h2>
       </div>
       <form class="goal-form" data-daily-goal-form>
         <label>
@@ -1647,6 +1702,11 @@ async function renderStudy(loadedBooks) {
         <button class="primary-action" type="submit">Save</button>
       </form>
     </div>
+    <div class="today-metrics" aria-label="Today's reading metrics">
+      <div><span>Time</span><strong>${escapeHtml(formatReadingTime(today.secondsRead))}</strong></div>
+      <div><span>Pages</span><strong>${escapeHtml(String(today.pagesRead))}</strong></div>
+      <div><span>Quotes</span><strong>${escapeHtml(String(today.quotesSaved))}</strong></div>
+    </div>
     <div class="goal-progress">
       <div class="goal-progress-topline">
         <strong>${today.pagesRead} / ${dailyGoal} pages</strong>
@@ -1654,30 +1714,36 @@ async function renderStudy(loadedBooks) {
       </div>
       <div class="activity-meter large" aria-hidden="true"><span style="width: ${goalPercent}%"></span></div>
     </div>
+    ${createNextBookCard(nextBook, finishGoals)}
   `;
 
   activitySlot.innerHTML = `
     <div class="section-header compact">
       <div>
-        <p class="eyebrow">Last 7 days</p>
-        <h2>Reading activity</h2>
+        <p class="eyebrow">Recent 7 days</p>
+        <h2>Reading time</h2>
       </div>
       <div class="activity-summary">
         <b>${weekTotals.pagesRead}</b>
         <span>pages</span>
         <b>${formatReadingTime(weekTotals.secondsRead)}</b>
-        <span>tracked</span>
+        <span>read</span>
+        <b>${weekTotals.quotesSaved}</b>
+        <span>quotes</span>
       </div>
     </div>
-    <div class="activity-list">${weekRows.map((row) => createActivityBar(row, maxPages, dailyGoal)).join("")}</div>
+    <div class="activity-bar-list">${weekRows.map((row) => createActivityBar(row, maxSeconds, dailyGoal)).join("")}</div>
   `;
 
   if (!books.length) {
-    renderEmptyState(booksSlot, "Upload a PDF to start tracking reading time, pages, quotes, and goals.", "No books yet");
+    activitySlot.hidden = true;
+    bookPanel.hidden = true;
     fitSidebarText();
     return;
   }
 
+  activitySlot.hidden = false;
+  bookPanel.hidden = false;
   booksSlot.innerHTML = books.map((book) => createBookGoalRow(book, finishGoals)).join("");
 
   fitSidebarText();
@@ -1835,13 +1901,88 @@ async function renderNotes(loadedBooks) {
   const notesColumn = document.querySelector("[data-real-notes]");
   if (!notesColumn) return;
 
+  const search = document.querySelector("[data-notes-search]");
+  const keywordSlot = document.querySelector("[data-top-keywords]");
+  const briefSlot = document.querySelector("[data-keyword-brief]");
+  const globalQuotes = document.querySelector("[data-global-quotes]");
+  const exportButton = document.querySelector("[data-export-keyword-brief]");
+  const booksSection = notesColumn.closest(".notes-books-section");
   const saved = loadedBooks || (await getSavedBooks());
+  const quotes = getAllQuotes(saved);
+  const keywordStats = getKeywordStats(quotes);
+  const selectedKeyword = getNotesKeywordFilter();
 
   if (!saved.length) {
-    renderEmptyState(notesColumn, "Upload a PDF first, then save quotes from the reader.");
-  } else {
-    notesColumn.innerHTML = saved.map(createNotesBookCard).join("");
+    notesColumn.innerHTML = "";
+    if (booksSection) booksSection.hidden = true;
+    if (search) search.disabled = true;
+    if (keywordSlot) keywordSlot.innerHTML = "";
+    if (briefSlot) briefSlot.innerHTML = "";
+    if (exportButton) exportButton.hidden = true;
+    if (globalQuotes) {
+      renderEmptyState(globalQuotes, "Upload a PDF first, then save quotes with keywords from the reader.");
+    }
+    fitSidebarText();
+    return;
   }
+
+  if (booksSection) booksSection.hidden = false;
+  notesColumn.innerHTML = saved.map(createNotesBookCard).join("");
+
+  if (!search || !keywordSlot || !briefSlot || !globalQuotes) {
+    fitSidebarText();
+    return;
+  }
+
+  search.disabled = !quotes.length;
+
+  const renderQuoteWorkspace = () => {
+    const query = search.value;
+    const filtered = filterQuotes(quotes, query, selectedKeyword);
+    const showingFocusedResults = Boolean(selectedKeyword || normalizeCaptureText(query));
+    const visibleQuotes = showingFocusedResults ? filtered : quotes.slice(0, 8);
+    const activeKeyword = selectedKeyword.toLowerCase();
+
+    keywordSlot.innerHTML = keywordStats.length
+      ? `
+          <button class="keyword-chip ${selectedKeyword ? "" : "active"}" type="button" data-clear-keyword>
+            <span>All keywords</span>
+            <strong>${escapeHtml(String(quotes.length))}</strong>
+          </button>
+          ${keywordStats.slice(0, 14).map((entry) => createKeywordChip(entry.tag, entry.count, {
+            active: entry.tag.toLowerCase() === activeKeyword,
+          })).join("")}
+        `
+      : "<span class=\"keyword-empty-message\">Add keywords in the reader to build this notebook.</span>";
+
+    briefSlot.innerHTML = selectedKeyword ? createKeywordBrief(selectedKeyword, filtered) : "";
+    if (exportButton) {
+      exportButton.hidden = !selectedKeyword || !filtered.length;
+      exportButton.dataset.exportKeyword = selectedKeyword;
+    }
+
+    if (!quotes.length) {
+      renderEmptyState(globalQuotes, "Save quotes in the reader to make them searchable here.", "No quotes yet");
+    } else if (!visibleQuotes.length) {
+      renderEmptyState(globalQuotes, "No quotes match that search.", "No matches");
+    } else {
+      const title = selectedKeyword
+        ? `Quotes tagged #${selectedKeyword}`
+        : showingFocusedResults
+          ? "Matching quotes"
+          : "Recent quotes";
+      globalQuotes.innerHTML = `
+        <div class="global-quote-heading">
+          <h3>${escapeHtml(title)}</h3>
+          <span>${escapeHtml(pluralize(filtered.length, "quote"))}</span>
+        </div>
+        ${visibleQuotes.map(createGlobalQuoteCard).join("")}
+      `;
+    }
+  };
+
+  search.oninput = renderQuoteWorkspace;
+  renderQuoteWorkspace();
 
   fitSidebarText();
 }
@@ -1991,6 +2132,9 @@ async function renderReader() {
   const zoomStatus = document.querySelector("#zoomStatus");
   const quotesLink = document.querySelector("#readerQuotesLink");
   const noteForm = document.querySelector("[data-note-form]");
+  const keywordInput = noteForm?.elements.tags;
+  const keywordChips = document.querySelector("[data-keyword-chips]");
+  const keywordSuggestions = document.querySelector("[data-keyword-suggestions]");
   const modeButtons = document.querySelectorAll("[data-reader-mode]");
   const pageQuotesPanel = document.querySelector("[data-page-quotes-panel]");
   const pageQuotesList = document.querySelector("[data-reader-page-quotes]");
@@ -2007,11 +2151,21 @@ async function renderReader() {
   let lastReadingTick = document.visibilityState === "visible" ? Date.now() : null;
   let pendingReadingSeconds = 0;
   let readingFlushPromise = Promise.resolve();
+  let keywordSuggestionBooks = [book];
 
   title.textContent = book.title;
   sidebarTitle.textContent = book.title;
   if (quotesLink) quotesLink.href = `quotes.html?id=${encodeURIComponent(book.id)}`;
   fitSidebarText();
+
+  getSavedBooks()
+    .then((books) => {
+      keywordSuggestionBooks = books.length ? books : [book];
+      refreshKeywordTools();
+    })
+    .catch((error) => {
+      console.warn("Keyword suggestions could not load", error);
+    });
 
   function updateReaderUrl() {
     const nextParams = new URLSearchParams(window.location.search);
@@ -2063,6 +2217,18 @@ async function renderReader() {
       bookId: book.id,
       canDelete: true,
     })).join("");
+  }
+
+  function refreshKeywordTools() {
+    renderKeywordInputTools(keywordInput, keywordChips, keywordSuggestions, getRecentKeywords(keywordSuggestionBooks));
+  }
+
+  function refreshKeywordSource() {
+    keywordSuggestionBooks = [
+      book,
+      ...keywordSuggestionBooks.filter((entry) => String(entry.id) !== String(book.id)),
+    ];
+    refreshKeywordTools();
   }
 
   window.addEventListener("reading-tracker:quote-deleted", (event) => {
@@ -2317,6 +2483,33 @@ async function renderReader() {
     button.addEventListener("click", () => setReaderMode(button.dataset.readerMode));
   });
 
+  keywordInput?.addEventListener("input", refreshKeywordTools);
+  keywordInput?.addEventListener("blur", () => {
+    setKeywordInputTags(keywordInput, keywordInput.value);
+    refreshKeywordTools();
+  });
+  keywordInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== ",") return;
+    event.preventDefault();
+    setKeywordInputTags(keywordInput, keywordInput.value);
+    refreshKeywordTools();
+  });
+  keywordChips?.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-keyword]");
+    if (!removeButton || !keywordInput) return;
+    removeKeywordFromInput(keywordInput, removeButton.dataset.removeKeyword);
+    refreshKeywordTools();
+    keywordInput.focus();
+  });
+  keywordSuggestions?.addEventListener("click", (event) => {
+    const suggestionButton = event.target.closest("[data-reader-keyword]");
+    if (!suggestionButton || !keywordInput) return;
+    addKeywordToInput(keywordInput, suggestionButton.dataset.readerKeyword);
+    refreshKeywordTools();
+    keywordInput.focus();
+  });
+  refreshKeywordTools();
+
   pdfStage.addEventListener(
     "wheel",
     async (event) => {
@@ -2375,6 +2568,7 @@ async function renderReader() {
     refreshSelectionAction();
     setTextLayerStatus("Quote saved.");
     renderPageQuotes();
+    refreshKeywordSource();
     await refreshCurrentPage();
   });
 
@@ -2411,6 +2605,7 @@ async function renderReader() {
     refreshSelectionAction();
     setTextLayerStatus("Quote saved.");
     renderPageQuotes();
+    refreshKeywordSource();
     await refreshCurrentPage();
   });
 

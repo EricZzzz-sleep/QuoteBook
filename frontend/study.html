@@ -34,46 +34,27 @@
     <main class="page">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Study analytics</p>
-          <h1>Track reading time, pages, quotes, and goals.</h1>
-          <p class="page-subtitle">See daily progress, set a page target, and calculate the pace needed to finish each PDF.</p>
+          <p class="eyebrow">Reading dashboard</p>
+          <h1>Study</h1>
+          <p class="page-subtitle">Plan today's reading and see your recent rhythm.</p>
         </div>
         <div class="topbar-actions">
           <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
         </div>
       </header>
 
-      <section class="stats-grid study-stats" aria-label="Study overview" data-study-stats></section>
-
       <section class="study-layout">
-        <div class="study-main">
-          <section class="study-panel" aria-label="Daily reading goal" data-study-goal></section>
-
-          <section class="study-panel" aria-label="Reading activity" data-study-activity></section>
-        </div>
-
-        <aside class="study-side">
-          <section class="study-panel">
-            <div class="section-header compact">
-              <div>
-                <p class="eyebrow">Book goals</p>
-                <h2>Finish planner</h2>
-              </div>
+        <section class="study-panel study-today-panel" aria-label="Today's reading plan" data-study-goal></section>
+        <section class="study-panel study-activity-panel" aria-label="Reading time this week" data-study-activity></section>
+        <section class="study-panel study-book-panel" aria-label="Book pace" data-study-book-panel>
+          <div class="section-header compact">
+            <div>
+              <p class="eyebrow">Books</p>
+              <h2>Book pace</h2>
             </div>
-            <div class="study-book-list" data-study-book-goals></div>
-          </section>
-          <section class="study-panel">
-            <div class="section-header compact">
-              <div>
-                <p class="eyebrow">How it counts</p>
-                <h2>Reader activity</h2>
-              </div>
-            </div>
-            <div class="study-note">
-              <p>Time is counted while the reader window is visible. Pages and quotes are counted when progress changes or a quote is saved.</p>
-            </div>
-          </section>
-        </aside>
+          </div>
+          <div class="study-book-list" data-study-book-goals></div>
+        </section>
       </section>
     </main>
   </div>

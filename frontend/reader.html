@@ -105,10 +105,14 @@
               <textarea class="field-input text-area" name="note" rows="3" placeholder="Why does it matter?"></textarea>
             </label>
             <label class="field-label">
-              <span>Tags</span>
-              <input class="field-input" name="tags" type="text" placeholder="theme, character, idea">
+              <span>Keywords</span>
+              <input class="field-input" name="tags" type="text" placeholder="identity, memory, power">
             </label>
-            <button class="primary-action" type="submit">Save Note</button>
+            <div class="keyword-helper" data-keyword-helper>
+              <div class="keyword-chip-entry" data-keyword-chips aria-label="Selected keywords"></div>
+              <div class="keyword-suggestions" data-keyword-suggestions aria-label="Recent keywords"></div>
+            </div>
+            <button class="primary-action" type="submit">Save Quote</button>
           </form>
 
           <div class="capture-card page-quotes-card" data-page-quotes-panel hidden>

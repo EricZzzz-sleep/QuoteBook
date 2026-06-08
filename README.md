@@ -1,19 +1,22 @@
 # QuoteBook
 
-QuoteBook is a personal PDF reading memory for keeping books, saved pages, quote notes, reading analytics, and goals in one place. It is designed to turn reading into visible progress rather than generic PDF comments.
+QuoteBook is a personal PDF reading memory for keeping books, saved pages, quote notes, reading analytics, and goals in one place. It is designed to turn reading into visible progress and reusable knowledge rather than generic PDF comments.
 
 ## Features
 
 - Upload PDF books into a personal shelf.
 - Open PDFs in a browser reader with saved page position.
 - Jump directly to a page by typing a page number.
-- Select passages and save quote notes with optional tags.
+- Select passages and save quote notes with optional keywords.
+- Search saved quotes across every PDF by quote text, side note, book title, page, or keyword.
+- Click keyword chips to collect related evidence across books.
 - Track active reading time, pages read, and quotes saved by day.
 - Set a daily page goal and see how many pages are left today.
 - Set per-book finish dates and calculate the pages needed per day.
 - Review quotes by book and by page.
 - Manage and delete saved quotes.
 - Export one book's saved quotes as a PDF.
+- Export one keyword's matching quotes as a Markdown evidence brief.
 - Fall back to browser storage when the Django backend is unavailable.
 
 ## Download QuoteBook
@@ -136,9 +139,10 @@ node --check frontend/app.js
 
 - Upload a PDF and confirm it opens in the reader.
 - Jump pages with the page number input.
-- Save a quote with a side note and tags.
+- Save a quote with a side note and keywords.
+- Confirm recent keyword suggestions appear when saving another quote.
 - Delete a quote from the reader Page Quotes panel without refreshing.
-- Open Notes and confirm it shows books only.
+- Open Notes, search across all books, click a keyword chip, and export a keyword brief.
 - Open one book's Quotes page, use Manage Quotes, and export a quote PDF.
 - Open Study, set a daily page goal, set a book finish date, and confirm daily reading activity appears.
 - Check Shelf and Reader layouts on a narrow mobile viewport.
@@ -148,6 +152,7 @@ node --check frontend/app.js
 - Designed the reading notebook experience and core user flow.
 - Built the saved-page and PDF reader interactions.
 - Implemented quote capture, tagging, quote management, and PDF export.
+- Added cross-book keyword search and Markdown evidence briefs.
 - Built Study analytics for reading time, daily pages, saved quotes, and finish-date goals.
 - Built the Django API and local storage fallback behavior.
 - Created project documentation and testing notes.
