@@ -1,23 +1,27 @@
 # QuoteBook
 
-QuoteBook is a personal PDF reading memory for keeping books, saved pages, quote notes, reading analytics, and goals in one place. It is designed to turn reading into visible progress and reusable knowledge rather than generic PDF comments.
+QuoteBook is a personal reading notebook for PDFs. It gives you one quiet place to keep your books, remember where you stopped, save important passages, add your own notes, and turn reading into something you can search, review, and build on later.
+
+Its main function is simple: upload a PDF, read it in QuoteBook, highlight passages you want to remember, save them as quote notes with keywords, and come back later to search or export those notes by book, page, or idea.
+
+I made QuoteBook for the kind of reading where a sentence might matter again later. Instead of leaving useful thoughts scattered across PDF comments, screenshots, sticky notes, and half-remembered page numbers, QuoteBook keeps the evidence and your thinking together.
 
 ## Features
 
-- Upload PDF books into a personal shelf.
-- Open PDFs in a browser reader with saved page position.
-- Jump directly to a page by typing a page number.
-- Select passages and save quote notes with optional keywords.
-- Search saved quotes across every PDF by quote text, side note, book title, page, or keyword.
-- Click keyword chips to collect related evidence across books.
-- Track active reading time, pages read, and quotes saved by day.
-- Set a daily page goal and see how many pages are left today.
-- Set per-book finish dates and calculate the pages needed per day.
-- Review quotes by book and by page.
-- Manage and delete saved quotes.
-- Export one book's saved quotes as a PDF.
-- Export one keyword's matching quotes as a Markdown evidence brief.
-- Fall back to browser storage when the Django backend is unavailable.
+- Upload PDF books to your own shelf.
+- Open a book in the browser reader and return to the page where you left off.
+- Jump straight to any page by typing the page number.
+- Select a passage and save it as a quote note with optional keywords.
+- Search every saved quote by quote text, side note, book title, page, or keyword.
+- Click keyword chips to gather related evidence across different books.
+- Track active reading time, pages read, and quotes saved each day.
+- Set a daily page goal and see how much reading is left for the day.
+- Set a finish date for a book and see how many pages you need to read per day.
+- Review saved quotes by book and by page.
+- Manage and delete quotes when your notes change.
+- Export a book's saved quotes as a PDF.
+- Export all quotes for a keyword as a Markdown evidence brief.
+- Keep working through browser storage if the Django backend is not running.
 
 ## Download QuoteBook
 
@@ -46,7 +50,7 @@ After installing, open QuoteBook from your Applications folder, Dock, Start menu
 
 ## Web Version
 
-QuoteBook can also be hosted as an installable web app. After it is opened from a hosted URL, users can install it from the browser and launch it from their laptop like a normal app.
+QuoteBook can also be hosted as an installable web app. After someone opens it from a hosted URL, they can install it from the browser and launch it from their laptop like a normal app.
 
 To publish the web version without a backend, host the static frontend files with GitHub Pages, Netlify, Vercel, or any static web host:
 
