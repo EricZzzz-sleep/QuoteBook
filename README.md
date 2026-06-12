@@ -1,10 +1,12 @@
 # QuoteBook
 
-QuoteBook is a personal reading notebook for PDFs. It gives you one quiet place to keep your books, remember where you stopped, save important passages, add your own notes, and turn reading into something you can search, review, and build on later.
+QuoteBook helps students turn class PDFs into searchable evidence. It gives you one quiet place to keep readings, remember where you stopped, save important passages, add your own notes, and reuse those quotes when it is time to write, review, or discuss.
 
 Its main function is simple: upload a PDF, read it in QuoteBook, highlight passages you want to remember, save them as quote notes with keywords, and come back later to search or export those notes by book, page, or idea.
 
-I made QuoteBook for the kind of reading where a sentence might matter again later. Instead of leaving useful thoughts scattered across PDF comments, screenshots, sticky notes, and half-remembered page numbers, QuoteBook keeps the evidence and your thinking together.
+I made QuoteBook for students in reading-heavy classes, especially when a sentence might matter again later in an essay, exam, seminar, or discussion post. Instead of leaving useful thoughts scattered across PDF comments, screenshots, sticky notes, and half-remembered page numbers, QuoteBook keeps the evidence and your thinking together.
+
+QuoteBook is intentionally not trying to be a full PDF editor, citation manager, handwriting notebook, mind-map tool, or classroom discussion platform. Its strength is narrower: read the PDF, save the evidence, tag the idea, and find it again fast.
 
 ## Features
 
@@ -14,6 +16,10 @@ I made QuoteBook for the kind of reading where a sentence might matter again lat
 - Select a passage and save it as a quote note with optional keywords.
 - Search every saved quote by quote text, side note, book title, page, or keyword.
 - Click keyword chips to gather related evidence across different books.
+- Create assignment projects and collect quotes for essays, exams, or discussions.
+- Export all evidence or one assignment project as Markdown.
+- Export a local JSON backup of reading metadata and saved quote notes.
+- Mark quotes as new, learning, or mastered for lightweight review.
 - Track active reading time, pages read, and quotes saved each day.
 - Set a daily page goal and see how much reading is left for the day.
 - Set a finish date for a book and see how many pages you need to read per day.

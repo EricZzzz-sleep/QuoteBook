@@ -9,6 +9,9 @@ const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesserac
 const JSPDF_URL = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
 const STUDY_DAILY_GOAL_KEY = "quotebook-study-daily-pages-goal";
 const STUDY_FINISH_GOALS_KEY = "quotebook-study-finish-goals";
+const PROJECTS_KEY = "quotebook-assignment-projects-v1";
+const ACTIVE_PROJECT_KEY = "quotebook-active-project-v1";
+const DEMO_BOOK_ID = "quotebook-demo-reading";
 
 let dbPromise;
 let uploadInProgress = false;
@@ -342,6 +345,12 @@ async function addBookCapture(id, type, data) {
     createdAt: new Date().toISOString(),
     ...data,
   };
+  if (type === "notes") {
+    capture.status = capture.status || "new";
+    capture.reviewCount = Number(capture.reviewCount || 0);
+    capture.lastReviewedAt = capture.lastReviewedAt || "";
+    capture.masteredAt = capture.masteredAt || "";
+  }
 
   if (!Array.isArray(book[type])) book[type] = [];
   book[type].unshift(capture);
@@ -368,6 +377,36 @@ async function deleteBookQuote(bookId, quoteId) {
   const notes = Array.isArray(book.notes) ? book.notes : [];
   book.notes = notes.filter((note) => String(note.id) !== String(quoteId));
   book.updatedAt = new Date().toISOString();
+  await saveBook(book);
+  return book;
+}
+
+async function updateBookQuoteStatus(bookId, quoteId, status) {
+  try {
+    const response = await apiRequest(`/api/books/${encodeURIComponent(bookId)}/captures/${encodeURIComponent(quoteId)}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    return response.book || null;
+  } catch (error) {
+    console.warn("Backend unavailable, updating quote review status locally", error);
+  }
+
+  const book = await getBook(bookId);
+  if (!book) return null;
+  const now = new Date().toISOString();
+  const notes = Array.isArray(book.notes) ? book.notes : [];
+  book.notes = notes.map((note) => {
+    if (String(note.id) !== String(quoteId)) return note;
+    return {
+      ...note,
+      status,
+      reviewCount: Number(note.reviewCount || 0) + 1,
+      lastReviewedAt: now,
+      masteredAt: status === "mastered" ? now : "",
+    };
+  });
+  book.updatedAt = now;
   await saveBook(book);
   return book;
 }
@@ -506,6 +545,73 @@ function getBookLastReadAt(book) {
   return book.lastReadAt || book.updatedAt || book.uploadedAt || "";
 }
 
+function getDemoBooks() {
+  const now = new Date().toISOString();
+  return [{
+    id: DEMO_BOOK_ID,
+    title: "Example Reading: Power and Memory",
+    author: "QuoteBook demo",
+    fileName: "example-class-reading.pdf",
+    fileSize: 0,
+    fileType: "application/pdf",
+    totalPages: 18,
+    currentPage: 7,
+    uploadedAt: now,
+    updatedAt: now,
+    lastReadAt: now,
+    readingDates: [todayKey()],
+    readingActivity: [{ date: todayKey(), secondsRead: 840, pagesRead: 7, quotesSaved: 3 }],
+    notes: [
+      {
+        id: "demo-quote-argument",
+        quote: "A strong argument does not only make a claim; it leaves a trail of evidence the reader can follow.",
+        note: "Useful for explaining why quote evidence matters in essays.",
+        page: 3,
+        tags: ["argument", "evidence", "essay"],
+        createdAt: now,
+        status: "learning",
+        reviewCount: 1,
+      },
+      {
+        id: "demo-quote-memory",
+        quote: "Memory becomes public when a community decides which stories are worth repeating.",
+        note: "Connects to class discussion about collective memory.",
+        page: 6,
+        tags: ["memory", "community", "discussion"],
+        createdAt: now,
+        status: "new",
+        reviewCount: 0,
+      },
+      {
+        id: "demo-quote-power",
+        quote: "Power often appears most stable when its assumptions are no longer questioned.",
+        note: "Good evidence for a paragraph about invisible authority.",
+        page: 11,
+        tags: ["power", "authority", "evidence"],
+        createdAt: now,
+        status: "mastered",
+        reviewCount: 2,
+        masteredAt: now,
+      },
+    ],
+    vocabulary: [],
+    summaries: [],
+    cover: "EX",
+    coverImage: "",
+    color: "cover-gold",
+    storageMode: "demo",
+    isDemo: true,
+  }];
+}
+
+function isDemoBook(book) {
+  return Boolean(book?.isDemo || String(book?.id || "") === DEMO_BOOK_ID);
+}
+
+function getDisplayBooks(books) {
+  return books.length ? books : getDemoBooks();
+}
+
 function formatRelativeDate(value) {
   if (!value) return "Not read yet";
   const date = new Date(value);
@@ -556,6 +662,107 @@ function getRecentKeywords(books, limit = 8) {
   });
 
   return keywords.slice(0, limit);
+}
+
+function getProjects() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROJECTS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((project) => project && project.id && project.name)
+      .map((project) => ({
+        id: String(project.id),
+        name: normalizeTitle(project.name).slice(0, 80) || "Untitled project",
+        quoteRefs: Array.isArray(project.quoteRefs)
+          ? project.quoteRefs.filter((ref) => ref?.bookId && ref?.quoteId)
+          : [],
+        createdAt: project.createdAt || new Date().toISOString(),
+        updatedAt: project.updatedAt || project.createdAt || new Date().toISOString(),
+      }));
+  } catch (error) {
+    console.warn("Projects could not be loaded", error);
+    return [];
+  }
+}
+
+function saveProjects(projects) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+  } catch (error) {
+    console.warn("Projects could not be saved", error);
+  }
+}
+
+function getActiveProjectId(projects = getProjects()) {
+  const savedId = localStorage.getItem(ACTIVE_PROJECT_KEY) || "";
+  if (projects.some((project) => project.id === savedId)) return savedId;
+  return projects[0]?.id || "";
+}
+
+function setActiveProjectId(id) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+    else localStorage.removeItem(ACTIVE_PROJECT_KEY);
+  } catch (error) {
+    console.warn("Active project could not be saved", error);
+  }
+}
+
+function createProject(name) {
+  const title = normalizeTitle(name).slice(0, 80);
+  if (!title) return null;
+  const now = new Date().toISOString();
+  const projects = getProjects();
+  const project = {
+    id: crypto.randomUUID(),
+    name: title,
+    quoteRefs: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  saveProjects([project, ...projects]);
+  setActiveProjectId(project.id);
+  return project;
+}
+
+function getQuoteRefKey(ref) {
+  return `${ref.bookId}:${ref.quoteId}`;
+}
+
+function getActiveProject(projects = getProjects()) {
+  const activeId = getActiveProjectId(projects);
+  return projects.find((project) => project.id === activeId) || projects[0] || null;
+}
+
+function addQuoteToProject(bookId, quoteId) {
+  const projects = getProjects();
+  const activeProject = getActiveProject(projects);
+  if (!activeProject) return null;
+  const ref = { bookId: String(bookId), quoteId: String(quoteId) };
+  const existing = new Set(activeProject.quoteRefs.map(getQuoteRefKey));
+  if (!existing.has(getQuoteRefKey(ref))) {
+    activeProject.quoteRefs = [ref, ...activeProject.quoteRefs];
+    activeProject.updatedAt = new Date().toISOString();
+    saveProjects(projects);
+  }
+  return activeProject;
+}
+
+function removeQuoteFromProject(projectId, bookId, quoteId) {
+  const projects = getProjects();
+  const project = projects.find((entry) => entry.id === projectId);
+  if (!project) return null;
+  const removeKey = getQuoteRefKey({ bookId, quoteId });
+  project.quoteRefs = project.quoteRefs.filter((ref) => getQuoteRefKey(ref) !== removeKey);
+  project.updatedAt = new Date().toISOString();
+  saveProjects(projects);
+  return project;
+}
+
+function getProjectQuotes(project, quotes) {
+  if (!project) return [];
+  const quoteMap = new Map(quotes.map((quote) => [getQuoteRefKey({ bookId: quote.bookId, quoteId: quote.id }), quote]));
+  return project.quoteRefs.map((ref) => quoteMap.get(getQuoteRefKey(ref))).filter(Boolean);
 }
 
 function quoteHasKeyword(quote, keyword) {
@@ -702,6 +909,59 @@ function getKeywordBriefMarkdown(keyword, quotes, relatedKeywords) {
   });
 
   return lines.join("\n");
+}
+
+function appendQuoteMarkdown(lines, quote) {
+  const tags = normalizeTags(quote.tags || []);
+  lines.push(`## ${quote.bookTitle || "Untitled reading"} - Page ${getNotePage(quote.page)}`);
+  lines.push("");
+  lines.push(`> ${normalizeCaptureText(quote.quote || "")}`);
+  if (quote.note) {
+    lines.push("");
+    lines.push(`Note: ${normalizeCaptureText(quote.note)}`);
+  }
+  if (tags.length) {
+    lines.push("");
+    lines.push(`Keywords: ${tags.map((tag) => `#${tag}`).join(" ")}`);
+  }
+  lines.push("");
+}
+
+function getEvidenceMarkdown(title, quotes) {
+  const lines = [`# ${title}`, ""];
+  if (!quotes.length) {
+    lines.push("No saved quotes yet.");
+    return lines.join("\n");
+  }
+  quotes.forEach((quote) => appendQuoteMarkdown(lines, quote));
+  return lines.join("\n");
+}
+
+function getProjectBriefMarkdown(project, quotes) {
+  return getEvidenceMarkdown(`${project.name} Evidence Brief`, quotes);
+}
+
+function getNotebookBackupJson(books) {
+  const exportableBooks = books.map((book) => ({
+    id: book.id,
+    title: book.title,
+    author: book.author || "",
+    fileName: book.fileName || "",
+    totalPages: book.totalPages || 1,
+    currentPage: book.currentPage || 1,
+    uploadedAt: book.uploadedAt || "",
+    updatedAt: book.updatedAt || "",
+    notes: Array.isArray(book.notes) ? book.notes : [],
+    readingActivity: Array.isArray(book.readingActivity) ? book.readingActivity : [],
+  }));
+  return JSON.stringify({
+    app: "QuoteBook",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    note: "This backup contains reading metadata and saved quote notes, not PDF files.",
+    books: exportableBooks,
+    projects: getProjects(),
+  }, null, 2);
 }
 
 function truncateEnd(value, maxLength = 50) {
@@ -1167,6 +1427,92 @@ function bindNotesTools() {
       return;
     }
 
+    if (event.target.closest("[data-export-notebook-md]")) {
+      event.preventDefault();
+      const books = await getSavedBooks();
+      const quotes = getAllQuotes(books);
+      if (!quotes.length) {
+        showStatus("Save quotes before exporting evidence.", "error");
+        return;
+      }
+      downloadTextFile("quotebook-evidence.md", getEvidenceMarkdown("QuoteBook Evidence", quotes));
+      showStatus("Evidence exported.");
+      return;
+    }
+
+    if (event.target.closest("[data-export-notebook-backup]")) {
+      event.preventDefault();
+      const books = await getSavedBooks();
+      if (!books.length) {
+        showStatus("Upload a reading before creating a backup.", "error");
+        return;
+      }
+      downloadTextFile("quotebook-backup.json", getNotebookBackupJson(books), "application/json");
+      showStatus("Notebook backup exported.");
+      return;
+    }
+
+    const projectExportButton = event.target.closest("[data-export-project]");
+    if (projectExportButton) {
+      event.preventDefault();
+      const projects = getProjects();
+      const project = getActiveProject(projects);
+      const quotes = getProjectQuotes(project, getAllQuotes(await getSavedBooks()));
+      if (!project || !quotes.length) {
+        showStatus("Add quotes to a project before exporting.", "error");
+        return;
+      }
+      downloadTextFile(`${safeFileName(project.name)}-evidence.md`, getProjectBriefMarkdown(project, quotes));
+      showStatus("Project evidence exported.");
+      return;
+    }
+
+    const addProjectButton = event.target.closest("[data-add-to-project-quote]");
+    if (addProjectButton) {
+      event.preventDefault();
+      if (!getProjects().length) {
+        showStatus("Create an assignment project first.", "error");
+        return;
+      }
+      const project = addQuoteToProject(addProjectButton.dataset.addToProjectBook, addProjectButton.dataset.addToProjectQuote);
+      if (project) {
+        showStatus(`Added to ${project.name}.`);
+        await renderNotes();
+      }
+      return;
+    }
+
+    const removeProjectButton = event.target.closest("[data-remove-project-quote]");
+    if (removeProjectButton) {
+      event.preventDefault();
+      removeQuoteFromProject(
+        removeProjectButton.dataset.removeProject,
+        removeProjectButton.dataset.removeProjectBook,
+        removeProjectButton.dataset.removeProjectQuote
+      );
+      showStatus("Removed from project.");
+      await renderNotes();
+      return;
+    }
+
+    const reviewButton = event.target.closest("[data-review-quote]");
+    if (reviewButton) {
+      event.preventDefault();
+      const updatedBook = await updateBookQuoteStatus(
+        reviewButton.dataset.reviewBook,
+        reviewButton.dataset.reviewQuote,
+        reviewButton.dataset.reviewStatus
+      );
+      if (updatedBook) {
+        window.dispatchEvent(new CustomEvent("reading-tracker:quote-updated", {
+          detail: { bookId: updatedBook.id, book: updatedBook },
+        }));
+      }
+      showStatus(`Quote marked ${getQuoteStatusLabel(reviewButton.dataset.reviewStatus).toLowerCase()}.`);
+      await refreshCurrentPage();
+      return;
+    }
+
     const deleteButton = event.target.closest("[data-delete-quote]");
     if (deleteButton) {
       event.preventDefault();
@@ -1201,6 +1547,27 @@ function bindNotesTools() {
       showStatus("The quote PDF could not be exported.", "error");
     }
   });
+
+  document.addEventListener("submit", async (event) => {
+    const projectForm = event.target.closest("[data-project-form]");
+    if (!projectForm) return;
+    event.preventDefault();
+    const project = createProject(projectForm.elements.projectName.value);
+    if (!project) {
+      showStatus("Name the assignment project first.", "error");
+      return;
+    }
+    projectForm.reset();
+    showStatus(`Project "${project.name}" created.`);
+    await renderNotes();
+  });
+
+  document.addEventListener("change", async (event) => {
+    const projectSelect = event.target.closest("[data-project-select]");
+    if (!projectSelect) return;
+    setActiveProjectId(projectSelect.value);
+    await renderNotes();
+  });
 }
 
 function bindStudyTools() {
@@ -1228,26 +1595,33 @@ function createBookCard(book) {
   const notes = captureCount(book, "notes");
   const title = escapeHtml(book.title);
   const author = book.author ? ` by ${escapeHtml(book.author)}` : "";
-  const href = `reader.html?id=${encodeURIComponent(book.id)}`;
+  const demo = isDemoBook(book);
+  const href = demo ? "notes.html" : `reader.html?id=${encodeURIComponent(book.id)}`;
+  const actions = demo
+    ? `<button class="primary-action" type="button" data-upload-pdf>Upload your reading</button>`
+    : `
+      <button class="rename-book-button" type="button" data-rename-book="${escapeHtml(book.id)}">Edit details</button>
+      <button class="delete-book-button" type="button" data-delete-book="${escapeHtml(book.id)}">Delete</button>
+    `;
 
   return `
-    <article class="shelf-book real-book-card">
+    <article class="shelf-book real-book-card ${demo ? "demo-card" : ""}">
       <a class="book-open-link" href="${href}">
         ${createCoverMarkup(book, "large")}
         <div class="shelf-book-body">
-          <span class="status-pill light">Uploaded PDF</span>
+          <span class="status-pill light">${demo ? "Example" : "Reading"}</span>
           <h2>${title}</h2>
           <p>Page ${book.currentPage} of ${book.totalPages}${author}</p>
           <p class="book-momentum">Last opened ${escapeHtml(formatRelativeDate(getBookLastReadAt(book)))}</p>
           <div class="mini-track" aria-hidden="true"><span style="width: ${percent}%"></span></div>
           <div class="capture-summary">
-            <span>${notes} notes</span>
+            <span>${percent}% read</span>
+            <span>${pluralize(notes, "quote")}</span>
           </div>
         </div>
       </a>
       <div class="book-card-actions">
-        <button class="rename-book-button" type="button" data-rename-book="${escapeHtml(book.id)}">Edit details</button>
-        <button class="delete-book-button" type="button" data-delete-book="${escapeHtml(book.id)}">Delete</button>
+        ${actions}
       </div>
     </article>
   `;
@@ -1258,31 +1632,33 @@ function createDashboardBook(book) {
   const notes = captureCount(book, "notes");
   const title = escapeHtml(book.title);
   const author = book.author ? ` by ${escapeHtml(book.author)}` : "";
+  const demo = isDemoBook(book);
+  const href = demo ? "notes.html" : `reader.html?id=${encodeURIComponent(book.id)}`;
 
   return `
-    <article class="book-card book-card-expanded">
+    <article class="book-card book-card-expanded ${demo ? "demo-card" : ""}">
       <div class="book-row">
         ${createCoverMarkup(book)}
         <div class="book-info">
           <h3>${title}</h3>
-          <p>Page ${book.currentPage} of ${book.totalPages}${author} &middot; Last read ${escapeHtml(formatRelativeDate(getBookLastReadAt(book)))}</p>
+          <p>Page ${book.currentPage} of ${book.totalPages}${author}</p>
           <div class="mini-track" aria-hidden="true"><span style="width: ${percent}%"></span></div>
         </div>
         <span class="book-percent">${percent}%</span>
       </div>
       <div class="book-captures">
         <div>
-          <span class="capture-label">Notes</span>
+          <span class="capture-label">Quotes</span>
           <strong>${notes}</strong>
-          <p>${notes ? "Saved while reading this PDF." : "Add quote notes from the reader."}</p>
+          <p>${notes ? "Saved for review." : "Save useful passages as you read."}</p>
         </div>
         <div>
           <span class="capture-label">Last opened</span>
           <strong>${escapeHtml(formatRelativeDate(getBookLastReadAt(book)))}</strong>
-          <p>Return to the page where your notes live.</p>
+          <p>${demo ? "Example workflow only." : "Continue where you stopped."}</p>
         </div>
       </div>
-      <a class="continue-link" href="reader.html?id=${encodeURIComponent(book.id)}">Open notebook</a>
+      <a class="continue-link" href="${href}">${demo ? "See example evidence" : "Continue reading"}</a>
     </article>
   `;
 }
@@ -1292,15 +1668,16 @@ function createNotesBookCard(book) {
   const quotes = captureCount(book, "notes");
   const title = escapeHtml(book.title);
   const author = book.author ? ` by ${escapeHtml(book.author)}` : "";
-  const href = `quotes.html?id=${encodeURIComponent(book.id)}`;
+  const demo = isDemoBook(book);
+  const href = demo ? "notes.html" : `quotes.html?id=${encodeURIComponent(book.id)}`;
 
   return `
-    <article class="book-notebook notes-book-card">
+    <article class="book-notebook notes-book-card ${demo ? "demo-card" : ""}">
       <a class="notes-book-link" href="${href}">
         <div class="book-notebook-header">
           ${createCoverMarkup(book)}
           <div>
-            <span class="note-type">Uploaded book</span>
+            <span class="note-type">${demo ? "Example" : "Reading"}</span>
             <h2>${title}</h2>
             <p>Page ${book.currentPage} of ${book.totalPages}${author}</p>
           </div>
@@ -1314,26 +1691,50 @@ function createNotesBookCard(book) {
   `;
 }
 
+function getQuoteStatusLabel(status) {
+  if (status === "mastered") return "Mastered";
+  if (status === "learning") return "Learning";
+  return "New";
+}
+
+function createQuoteReviewControls(bookId, quote) {
+  if (!bookId || !quote?.id || String(bookId) === DEMO_BOOK_ID) return "";
+  const status = quote.status || "new";
+  return `
+    <div class="quote-review-controls" aria-label="Quote review status">
+      <span>${escapeHtml(getQuoteStatusLabel(status))}</span>
+      <button class="quote-status-button ${status === "learning" ? "active" : ""}" type="button" data-review-quote="${escapeHtml(quote.id)}" data-review-book="${escapeHtml(bookId)}" data-review-status="learning">Learning</button>
+      <button class="quote-status-button ${status === "mastered" ? "active" : ""}" type="button" data-review-quote="${escapeHtml(quote.id)}" data-review-book="${escapeHtml(bookId)}" data-review-status="mastered">Mastered</button>
+    </div>
+  `;
+}
+
 function createQuoteCard(note, options = {}) {
   const noteText = normalizeCaptureText(note.note || "");
   const page = getNotePage(note.page);
   const tags = normalizeTags(note.tags || []);
+  const demo = options.demo || String(options.bookId || "") === DEMO_BOOK_ID;
   const deleteButton = options.canDelete && note.id
     ? `<button class="quote-delete-button" type="button" data-delete-quote="${escapeHtml(note.id)}" data-delete-quote-book="${escapeHtml(options.bookId || "")}">Delete</button>`
     : "";
-  const openButton = options.bookId && !options.canDelete
+  const openButton = options.bookId && !options.canDelete && !demo
     ? `<a class="ghost-action link-action quote-open-action" href="reader.html?id=${encodeURIComponent(options.bookId)}&page=${encodeURIComponent(page)}&mode=quotes">Open page</a>`
     : "";
+  const projectButton = options.canAddToProject && options.bookId && note.id && !demo
+    ? `<button class="ghost-action quote-open-action" type="button" data-add-to-project-book="${escapeHtml(options.bookId)}" data-add-to-project-quote="${escapeHtml(note.id)}">Add to project</button>`
+    : "";
   return `
-    <article class="embedded-note quote-card" data-quote-card>
+    <article class="embedded-note quote-card ${demo ? "demo-card" : ""}" data-quote-card>
       <div class="quote-card-topline">
-        <span>Page ${escapeHtml(page)} &middot; ${formatDate(note.createdAt)}</span>
+        <span>${demo ? "Example" : `Page ${escapeHtml(page)}`} &middot; ${formatDate(note.createdAt)}</span>
         ${deleteButton}
         ${openButton}
+        ${projectButton}
       </div>
       <p>${escapeHtml(note.quote || "")}</p>
       ${noteText ? `<small>${escapeHtml(noteText)}</small>` : ""}
       ${createKeywordTagList(tags, { links: Boolean(options.bookId && !options.canDelete) })}
+      ${createQuoteReviewControls(options.bookId, note)}
     </article>
   `;
 }
@@ -1342,15 +1743,18 @@ function createGlobalQuoteCard(quote) {
   const noteText = normalizeCaptureText(quote.note || "");
   const page = getNotePage(quote.page);
   const tags = normalizeTags(quote.tags || []);
+  const demo = quote.isDemo || String(quote.bookId || "") === DEMO_BOOK_ID;
   return `
-    <article class="global-quote-card">
+    <article class="global-quote-card ${demo ? "demo-card" : ""}">
       <div class="quote-card-topline">
-        <span>${escapeHtml(quote.bookTitle || "Untitled book")} &middot; Page ${escapeHtml(page)}</span>
-        <a class="ghost-action link-action quote-open-action" href="reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(page)}&mode=quotes">Open page</a>
+        <span>${demo ? "Example" : escapeHtml(quote.bookTitle || "Untitled book")} &middot; Page ${escapeHtml(page)}</span>
+        ${demo ? "" : `<a class="ghost-action link-action quote-open-action" href="reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(page)}&mode=quotes">Open page</a>`}
+        ${demo ? "" : `<button class="ghost-action quote-open-action" type="button" data-add-to-project-book="${escapeHtml(quote.bookId)}" data-add-to-project-quote="${escapeHtml(quote.id)}">Add to project</button>`}
       </div>
       <p>${escapeHtml(quote.quote || "")}</p>
       ${noteText ? `<small>${escapeHtml(noteText)}</small>` : ""}
       ${createKeywordTagList(tags, { buttons: true })}
+      ${createQuoteReviewControls(quote.bookId, quote)}
     </article>
   `;
 }
@@ -1370,6 +1774,60 @@ function createKeywordBrief(keyword, quotes) {
       </div>
       <button class="ghost-action" type="button" data-clear-keyword>Clear keyword</button>
     </article>
+  `;
+}
+
+function createProjectWorkspace(quotes, hasRealBooks) {
+  const projects = getProjects();
+  const activeProject = getActiveProject(projects);
+  const projectQuotes = getProjectQuotes(activeProject, quotes);
+  const projectOptions = projects.map((project) => `
+    <option value="${escapeHtml(project.id)}" ${activeProject?.id === project.id ? "selected" : ""}>${escapeHtml(project.name)}</option>
+  `).join("");
+
+  return `
+    <div class="section-header compact">
+      <div>
+        <p class="eyebrow">Assignments</p>
+        <h2>Project evidence</h2>
+      </div>
+      <button class="ghost-action" type="button" data-export-project ${!activeProject || !projectQuotes.length ? "disabled" : ""}>Export project</button>
+    </div>
+    <form class="project-form" data-project-form>
+      <label class="field-label">
+        <span>New project</span>
+        <input class="field-input" name="projectName" type="text" placeholder="History essay, midterm review, seminar prep">
+      </label>
+      <button class="primary-action" type="submit">Create</button>
+    </form>
+    ${projects.length ? `
+      <label class="field-label project-select-label">
+        <span>Active project</span>
+        <select class="field-input" data-project-select>
+          ${projectOptions}
+        </select>
+      </label>
+    ` : ""}
+    <div class="project-help">
+      ${hasRealBooks
+        ? "Add quotes from search results to build an evidence brief for one assignment."
+        : "Example quotes show the workflow. Upload a class reading to build your own project."}
+    </div>
+    <div class="project-quote-list">
+      ${activeProject
+        ? projectQuotes.length
+          ? projectQuotes.map((quote) => `
+            <article class="project-quote-card">
+              <div class="quote-card-topline">
+                <span>${escapeHtml(quote.bookTitle || "Untitled reading")} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
+                <button class="quote-delete-button" type="button" data-remove-project="${escapeHtml(activeProject.id)}" data-remove-project-book="${escapeHtml(quote.bookId)}" data-remove-project-quote="${escapeHtml(quote.id)}">Remove</button>
+              </div>
+              <p>${escapeHtml(truncateEnd(quote.quote || "", 120))}</p>
+            </article>
+          `).join("")
+          : `<div class="empty-library compact-empty"><strong>No project quotes yet</strong><p>Add evidence from the quote search results.</p></div>`
+        : `<div class="empty-library compact-empty"><strong>No project yet</strong><p>Create one for an essay, exam, or discussion.</p></div>`}
+    </div>
   `;
 }
 
@@ -1409,22 +1867,22 @@ function renderDashboardHero(books) {
   const latest = books[0];
 
   if (!latest) {
-    status.textContent = "Upload a PDF";
-    title.textContent = "Your real books will appear here.";
-    meta.textContent = "Choose a PDF to create a saved book with its own notes and quotes.";
+    status.textContent = "Start here";
+    title.textContent = "Upload a class reading.";
+    meta.textContent = "Read the PDF, save important passages, and search them later by keyword.";
     if (link) {
       link.href = "shelf.html";
-      link.textContent = "Open Shelf";
+      link.textContent = "Upload a reading";
     }
     return;
   }
 
-  status.textContent = "Notebook ready";
+  status.textContent = "Continue";
   title.textContent = latest.title;
-  meta.textContent = latest.author ? `By ${latest.author}.` : "Open this book to review notes and quotes.";
+  meta.textContent = latest.author ? `By ${latest.author}.` : `Page ${latest.currentPage} of ${latest.totalPages}.`;
   if (link) {
     link.href = `reader.html?id=${encodeURIComponent(latest.id)}`;
-    link.textContent = "Open Notebook";
+    link.textContent = "Continue reading";
   }
 }
 
@@ -1446,6 +1904,7 @@ function getAllQuotes(books) {
       bookId: book.id,
       bookTitle: book.title,
       bookAuthor: book.author || "",
+      isDemo: isDemoBook(book),
     }));
   }).sort((first, second) => new Date(second.createdAt || 0) - new Date(first.createdAt || 0));
 }
@@ -1463,9 +1922,9 @@ function renderRecentQuotes(books) {
 
   if (panel) panel.hidden = false;
   container.innerHTML = quotes.map((quote) => `
-    <a class="quote-card-link" href="reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(getNotePage(quote.page))}&mode=quotes">
-      <article class="embedded-note quote-card">
-        <span>${escapeHtml(quote.bookTitle)} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
+    <a class="quote-card-link" href="${quote.isDemo ? "notes.html" : `reader.html?id=${encodeURIComponent(quote.bookId)}&page=${encodeURIComponent(getNotePage(quote.page))}&mode=quotes`}">
+      <article class="embedded-note quote-card ${quote.isDemo ? "demo-card" : ""}">
+        <span>${quote.isDemo ? "Example" : escapeHtml(quote.bookTitle)} &middot; Page ${escapeHtml(getNotePage(quote.page))}</span>
         <p>${escapeHtml(truncateEnd(quote.quote || ""))}</p>
         ${quote.note ? `<small>${escapeHtml(truncateEnd(quote.note))}</small>` : ""}
       </article>
@@ -1587,11 +2046,11 @@ function createNextBookCard(book, finishGoals) {
     return `
       <article class="next-book-card empty">
         <div>
-          <span class="note-type">Next book</span>
-          <h3>No book yet</h3>
-          <p>Upload a PDF to start your reading plan.</p>
+          <span class="note-type">Start</span>
+          <h3>No reading yet</h3>
+          <p>Upload a class PDF to build a reading plan.</p>
         </div>
-        <button class="primary-action" type="button" data-upload-pdf>Upload PDF</button>
+        <button class="primary-action" type="button" data-upload-pdf>Upload class reading</button>
       </article>
     `;
   }
@@ -1602,10 +2061,10 @@ function createNextBookCard(book, finishGoals) {
     <article class="next-book-card">
       ${createCoverMarkup(book)}
       <div>
-        <span class="note-type">Next book</span>
+        <span class="note-type">Continue</span>
         <h3>${escapeHtml(book.title)}</h3>
         <p>Page ${escapeHtml(book.currentPage || 1)} of ${escapeHtml(book.totalPages || 1)} &middot; ${escapeHtml(pluralize(remainingPages, "page"))} left</p>
-        <small>${escapeHtml(plan.finishDate ? plan.message : "Continue from your most recent unfinished PDF.")}</small>
+        <small>${escapeHtml(plan.finishDate ? plan.message : "Continue from your most recent unfinished reading.")}</small>
       </div>
       <a class="primary-action link-action" href="reader.html?id=${encodeURIComponent(book.id)}">Continue reading</a>
     </article>
@@ -1692,7 +2151,7 @@ async function renderStudy(loadedBooks) {
     <div class="section-header compact">
       <div>
         <p class="eyebrow">Today</p>
-        <h2>${remainingToday ? `Read ${remainingToday} more pages today` : "Goal complete today"}</h2>
+        <h2>${remainingToday ? `${remainingToday} pages left today` : "Goal complete"}</h2>
       </div>
       <form class="goal-form" data-daily-goal-form>
         <label>
@@ -1859,7 +2318,7 @@ async function renderShelf(loadedBooks) {
   }
 
   if (!books.length) {
-    renderEmptyState(grid, "Upload a PDF to create your first real book.");
+    grid.innerHTML = getDemoBooks().map(createBookCard).join("");
     fitSidebarText();
     return;
   }
@@ -1884,11 +2343,12 @@ async function renderDashboard(loadedBooks) {
   if (!list) return;
 
   const books = loadedBooks || (await getSavedBooks());
+  const displayBooks = getDisplayBooks(books);
   const stats = await getDashboardStats(books);
   renderDashboardHero(books);
-  renderRecentQuotes(books);
+  renderRecentQuotes(displayBooks);
   if (!books.length) {
-    renderEmptyState(list, "Your uploaded PDFs will appear here with notes and quotes.");
+    list.innerHTML = displayBooks.map(createDashboardBook).join("");
   } else {
     list.innerHTML = books.map(createDashboardBook).join("");
   }
@@ -1906,28 +2366,18 @@ async function renderNotes(loadedBooks) {
   const briefSlot = document.querySelector("[data-keyword-brief]");
   const globalQuotes = document.querySelector("[data-global-quotes]");
   const exportButton = document.querySelector("[data-export-keyword-brief]");
+  const projectWorkspace = document.querySelector("[data-project-workspace]");
   const booksSection = notesColumn.closest(".notes-books-section");
   const saved = loadedBooks || (await getSavedBooks());
-  const quotes = getAllQuotes(saved);
+  const displayBooks = getDisplayBooks(saved);
+  const quotes = getAllQuotes(displayBooks);
   const keywordStats = getKeywordStats(quotes);
   const selectedKeyword = getNotesKeywordFilter();
-
-  if (!saved.length) {
-    notesColumn.innerHTML = "";
-    if (booksSection) booksSection.hidden = true;
-    if (search) search.disabled = true;
-    if (keywordSlot) keywordSlot.innerHTML = "";
-    if (briefSlot) briefSlot.innerHTML = "";
-    if (exportButton) exportButton.hidden = true;
-    if (globalQuotes) {
-      renderEmptyState(globalQuotes, "Upload a PDF first, then save quotes with keywords from the reader.");
-    }
-    fitSidebarText();
-    return;
-  }
+  const hasRealBooks = saved.length > 0;
 
   if (booksSection) booksSection.hidden = false;
-  notesColumn.innerHTML = saved.map(createNotesBookCard).join("");
+  notesColumn.innerHTML = displayBooks.map(createNotesBookCard).join("");
+  if (projectWorkspace) projectWorkspace.innerHTML = createProjectWorkspace(getAllQuotes(saved), hasRealBooks);
 
   if (!search || !keywordSlot || !briefSlot || !globalQuotes) {
     fitSidebarText();
@@ -1962,7 +2412,7 @@ async function renderNotes(loadedBooks) {
     }
 
     if (!quotes.length) {
-      renderEmptyState(globalQuotes, "Save quotes in the reader to make them searchable here.", "No quotes yet");
+      renderEmptyState(globalQuotes, "Save passages in the reader to make them searchable here.", "No quotes yet");
     } else if (!visibleQuotes.length) {
       renderEmptyState(globalQuotes, "No quotes match that search.", "No matches");
     } else {
@@ -2027,7 +2477,7 @@ async function renderQuotesPage() {
       : notes;
 
     if (!notes.length) {
-      renderEmptyState(list, "No quotes saved for this book yet. Open it from Shelf to save passages.", "No quotes yet");
+      renderEmptyState(list, "Open this reading and save useful passages for review.", "No quotes yet");
     } else if (!filtered.length) {
       renderEmptyState(list, "No quotes match that keyword.", "No matches");
     } else {
@@ -2238,6 +2688,16 @@ async function renderReader() {
       book.notes = book.notes.filter((note) => String(note.id) !== String(quoteId));
     }
     renderPageQuotes();
+  });
+
+  window.addEventListener("reading-tracker:quote-updated", (event) => {
+    const { bookId, book: updatedBook } = event.detail || {};
+    if (String(bookId) !== String(book.id) || !updatedBook) return;
+    if (Array.isArray(updatedBook.notes)) {
+      book.notes = updatedBook.notes;
+    }
+    renderPageQuotes();
+    refreshKeywordSource();
   });
 
   function setReaderMode(mode) {
